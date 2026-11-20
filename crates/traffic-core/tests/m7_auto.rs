@@ -71,6 +71,7 @@ fn single_auto_damps_ring_waves() {
     // vehicle switches to auto (wave dampener) and the waves die down.
     let mut sc = scenario("sugiyama_ring");
     sc.road = RoadConfig::Ring { length_m: 260.0, lanes: 1, speed_limit_kmh: 50.0 };
+    sc.auto.dampener = true;
     let mut human_only = World::new(&sc, 0.0);
     let mut with_auto = World::new(&sc, 0.0);
     human_only.run_for(300.0);

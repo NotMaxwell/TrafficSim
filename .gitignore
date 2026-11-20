@@ -4,3 +4,4 @@
 !scenarios/**/*.csv
 /out/
 .DS_Store
+/exports/

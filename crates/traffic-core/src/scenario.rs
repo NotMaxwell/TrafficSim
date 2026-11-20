@@ -64,6 +64,17 @@ impl Default for Population {
     }
 }
 
+/// A change of auto share during a run (recorded from the slider so a
+/// saved scenario replays the run exactly).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MixChange {
+    pub t: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right: Option<f64>,
+}
+
 /// Auto share for the left and right panes of the split view.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -103,6 +114,8 @@ pub struct Scenario {
     pub bus: BusParams,
     /// Scheduled events (hit both panes at the same time and place).
     pub events: Vec<EventSpec>,
+    /// Auto-share changes during the run.
+    pub mix_timeline: Vec<MixChange>,
 }
 
 impl Default for Scenario {
@@ -123,6 +136,7 @@ impl Default for Scenario {
             mobil: MobilParams::default(),
             bus: BusParams::default(),
             events: Vec::new(),
+            mix_timeline: Vec::new(),
         }
     }
 }

@@ -143,7 +143,9 @@ pub struct AutoParams {
     pub lookahead: f64,
     /// Extra time gap opened when a slowdown is detected ahead, s.
     pub buffer_gap: f64,
-    /// Stern-style wave dampener when following a human in ACC mode.
+    /// Stern-style wave dampener when following an oscillating human in
+    /// ACC mode. Off by default: on the corridor it lowers bottleneck
+    /// capacity at low auto shares; the ring experiments turn it on.
     pub dampener: bool,
     pub length: f64,
 }
@@ -163,7 +165,7 @@ impl Default for AutoParams {
             threshold: 0.1,
             lookahead: 2000.0,
             buffer_gap: 0.4,
-            dampener: true,
+            dampener: false,
             length: 5.0,
         }
     }

@@ -20,6 +20,7 @@ pub mod scenario;
 pub mod sim;
 pub mod snapshot;
 pub mod step;
+pub mod sweep;
 pub mod vehicles;
 pub mod waves;
 

@@ -20,6 +20,8 @@ pub enum Cmd {
     Event(EventKind),
     /// Write CSVs of both worlds into this directory.
     Export(std::path::PathBuf),
+    /// Save the scenario as run so far (events, slider changes) to a file.
+    Save(std::path::PathBuf),
     StepOnce,
     Quit,
 }
@@ -176,6 +178,13 @@ impl SimThread {
                     Cmd::SetShare(side, v) => self.sim.set_auto_share(side, v),
                     Cmd::Event(e) => self.sim.inject(e),
                     Cmd::Export(dir) => self.export_msg = Some(self.export(&dir)),
+                    Cmd::Save(path) => {
+                        let res = self.sim.scenario.to_toml().and_then(|t| std::fs::write(&path, t).map_err(|e| e.to_string()));
+                        self.export_msg = Some(match res {
+                            Ok(()) => format!("Scenario saved to {}", path.display()),
+                            Err(e) => format!("Save failed: {e}"),
+                        });
+                    }
                     Cmd::StepOnce => self.step_all(),
                     Cmd::Quit => return,
                 }

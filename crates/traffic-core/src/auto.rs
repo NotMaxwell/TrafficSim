@@ -37,6 +37,21 @@ pub struct AutoState {
     pub intent: i8,
     /// A slowdown was detected ahead (buffer gap active).
     pub slowdown_ahead: bool,
+    /// Running mean of the leader's acceleration and of its magnitude:
+    /// their difference is large only when the leader oscillates.
+    pub lead_a_mean: f64,
+    pub lead_a_abs: f64,
+    /// Dampener engaged (with hysteresis).
+    pub damping: bool,
+}
+
+impl AutoState {
+    /// Update the stop-and-go detector: the leader's acceleration keeps
+    /// changing sign (steady acceleration out of a queue does not count).
+    fn update_damping(&mut self) {
+        let index = self.lead_a_abs - self.lead_a_mean.abs();
+        if self.damping { self.damping = index > 0.05 } else { self.damping = index > 0.15 }
+    }
 }
 
 /// Result of the controller for one tick.
@@ -86,6 +101,10 @@ pub fn accel(w: &World, i: usize) -> AutoOut {
     if lead.gap > p.radar_range {
         lead = Lead::FREE;
     }
+    let k = dt / 30.0;
+    st.lead_a_mean += k * (lead.a - st.lead_a_mean);
+    st.lead_a_abs += k * (lead.a.abs() - st.lead_a_abs);
+    st.update_damping();
     let yielding = crate::mobil::yield_target(w, i);
     let bus_ok = w.bus.up_at(s);
     let view = if bus_ok { w.bus.view() } else { None };
@@ -122,8 +141,8 @@ pub fn accel(w: &World, i: usize) -> AutoOut {
         st.mode = AutoMode::Acc;
         let acc_idm = crate::idm::Idm { t: p.t_acc * gap_factor, ..idm };
         let mut a = acc_idm.accel(v, v0, lead.gap, v - lead.v);
-        // 4. Dampener behind a human leader.
-        if p.dampener && lead.slot.is_some_and(|l| w.veh.kind[l] == Kind::Human) && lead.gap < FREE_GAP {
+        // 4. Dampener behind a human leader that is oscillating.
+        if p.dampener && st.damping && lead.slot.is_some_and(|l| w.veh.kind[l] == Kind::Human) && lead.gap < FREE_GAP {
             let (g_l, g_u) = (idm.s0 + 0.8 * v + 2.0, idm.s0 + 2.5 * v + 10.0);
             let catch = ((lead.gap - g_l) / (g_u - g_l)).clamp(0.0, 1.0);
             let target = (st.v_avg + 1.5 * catch).min(v0);

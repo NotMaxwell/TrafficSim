@@ -38,16 +38,26 @@ struct App {
     camera: view_strip::Camera,
     events: panel_events::EventForm,
     plots: view_plots::Plots,
+    file_path: String,
+    file_msg: Option<String>,
 }
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Optional command line: --scenario <index> --speed <x> --mile <m> --zoom <half width m>
+        // Optional command line: --scenario <index> | --load <file.toml>, --speed <x>,
+        // --mile <m>, --zoom <half width m>, --screenshot <file.ppm> --after <s>
         let args: Vec<String> = std::env::args().collect();
         let arg = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1));
         let scenario_idx = arg("--scenario").and_then(|s| s.parse().ok()).unwrap_or(0).min(scenarios::BUILTIN.len() - 1);
         let speed = arg("--speed").and_then(|s| s.parse().ok()).unwrap_or(1.0);
-        let sc = scenarios::load(scenarios::BUILTIN[scenario_idx].1);
+        let mut sc = scenarios::load(scenarios::BUILTIN[scenario_idx].1);
+        let mut file_msg = None;
+        if let Some(path) = arg("--load") {
+            match read_scenario(path) {
+                Ok(s) => sc = s,
+                Err(e) => file_msg = Some(e),
+            }
+        }
         let share = [sc.mix.left, sc.mix.right];
         let mut camera = view_strip::Camera::default();
         if let Some(m) = arg("--mile").and_then(|s| s.parse().ok()) {
@@ -69,6 +79,8 @@ impl App {
             camera,
             events: Default::default(),
             plots: Default::default(),
+            file_path: arg("--load").cloned().unwrap_or_else(|| "scenarios/my_run.toml".into()),
+            file_msg,
         }
     }
 
@@ -170,6 +182,46 @@ impl App {
         }
         ui.add_space(10.0);
         ui.separator();
+        ui.label(egui::RichText::new("Scenario file").strong());
+        ui.add(egui::TextEdit::singleline(&mut self.file_path).desired_width(f32::INFINITY));
+        ui.horizontal(|ui| {
+            if ui.button("Save").on_hover_text("Save the run so far (injected events and slider changes) so it replays exactly").clicked() {
+                self.runner.send(Cmd::Save(self.file_path.clone().into()));
+                self.file_msg = None;
+            }
+            if ui.button("Load").clicked() {
+                match read_scenario(&self.file_path) {
+                    Ok(sc) => {
+                        self.share = [sc.mix.left, sc.mix.right];
+                        self.camera = Default::default();
+                        self.file_msg = Some(format!("Loaded {}", sc.name));
+                        self.runner.send(Cmd::Load(Box::new(sc)));
+                    }
+                    Err(e) => self.file_msg = Some(e),
+                }
+            }
+        });
+        if let Some(m) = &self.file_msg {
+            ui.label(egui::RichText::new(m).small());
+        }
+        ui.add_space(10.0);
+        ui.separator();
+        ui.label(egui::RichText::new("Camera").strong());
+        ui.horizontal(|ui| {
+            match self.camera.follow {
+                Some(id) => {
+                    ui.label(format!("following #{id}"));
+                    if ui.small_button("stop").clicked() {
+                        self.camera.follow = None;
+                    }
+                }
+                None => {
+                    ui.label(egui::RichText::new("click a vehicle in the detail view to follow it").small().weak());
+                }
+            }
+        });
+        ui.add_space(10.0);
+        ui.separator();
         ui.label(egui::RichText::new("Export").strong());
         if ui.button("💾 Save CSV + scenario").on_hover_text("Summary rows and detector windows for both panes, plus the scenario with every injected event").clicked() {
             let dir = std::env::current_dir().unwrap_or_default().join("exports");
@@ -203,6 +255,11 @@ fn legend(ui: &mut egui::Ui, by: ColorBy) {
     }
     item(ui, theme::BRAKE, "brake light");
     item(ui, theme::CRASH, "crash");
+}
+
+fn read_scenario(path: &str) -> Result<traffic_core::Scenario, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    traffic_core::Scenario::from_toml(&text).map_err(|e| format!("{path}: {e}"))
 }
 
 pub fn format_time(t: f64) -> String {

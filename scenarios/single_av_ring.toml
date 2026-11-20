@@ -20,6 +20,10 @@ right = 0.0
 left_auto_ids = []
 right_auto_ids = [0]
 
+# The controlled vehicle runs the Stern-style wave dampener.
+[auto]
+dampener = true
+
 # Same sluggish city drivers as the Sugiyama ring: string-unstable here.
 [human]
 length = 4.5
