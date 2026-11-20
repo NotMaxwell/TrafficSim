@@ -18,6 +18,7 @@ the evidence is recorded here.
 | 8 | Merges + mix | `tests/m8_merge_mix.rs` | `progress/m8_single_av_ring.png` |
 | 9 | Events + analysis | `tests/m9_events_analysis.rs` | `progress/m9_events_analysis.png` |
 | 10 | Batch + polish | `tests/m10_batch_replay.rs`, `traffic-batch/tests/cli.rs` | – |
+| 11 | I-565 + hive mind | `tests/m11_hivemind_i565.rs` | `progress/i565.png` |
 
 ## Deviations from the design
 
@@ -30,8 +31,18 @@ the evidence is recorded here.
   interchanges use the designed auxiliary lanes, merge zones and ramp
   queues. Set `city_terminal = false` to make the city ramps ordinary
   ramps.
-- **Interchanges at miles 7 and 13** in the bundled corridor, as an
-  example; the open question is still open (`interchanges_mi`).
+- **Real corridors.** The corridor config supports named ends, lane
+  counts by mile (`lane_segments`), speed limits by mile
+  (`limit_segments`), and named interchanges with one-directional ramps
+  and their own volumes (`interchanges`). Ramp zones that overlap join
+  into one auxiliary lane. The I-565 scenario uses all of these.
+- **I-565 assumptions.** Exits, mileposts, the 70 → 65 mph change and
+  the County Line Rd–Wall-Triana widening (2 lanes until 2027) come from
+  the sources in the README. Two more items are from memory and not
+  confirmed by those sources: 3 lanes from Wall-Triana to Memorial
+  Parkway, and 2 lanes east of it. Exits 17A/17B are modelled as one
+  interchange. Ramp volumes, exit shares and the daily profile are
+  calibrated estimates, not traffic counts.
 - Lanes are numbered from the right: lane 1 is the rightmost mainline
   lane and lane 0 the auxiliary lane.
 
@@ -63,6 +74,20 @@ one in two hours.
    signalling while they wait for a gap. Drivers behind **yield** to a
    signalling car just ahead when that takes only comfortable braking.
 
+6. **Lane-drop signs.** Humans start moving out of a lane that ends
+   (lane drop, work-zone taper) about a mile ahead. A crash or closure is
+   still only noticed about 600 m ahead.
+7. **Primed braking after a cut-in.** For 3 s after a car moves in
+   directly ahead at crawling speed, braking cues get a 0.7 s response
+   (Green 2000: expected events). That car was signalling right beside
+   the driver. This took the I-565 work-zone merge crashes from 24 to
+   about 2 per 90 minutes. Applying the same priming to all slow driving
+   was tried first and rejected: queues then crept instead of stopping,
+   and the jam head speed left the 10–20 km/h band.
+8. **Zipper courtesy.** Drivers brake up to b_safe to let in a car whose
+   lane is ending, but only up to comfortable braking for a discretionary
+   lane change.
+
 Measured with these settings: reaction lag = τ exactly, wave
 amplification 1.51 at rush-hour density, jam head 13.8 km/h upstream.
 
@@ -84,11 +109,35 @@ amplification 1.51 at rush-hour density, jam head 13.8 km/h upstream.
   speed fell to 54 km/h versus 91 km/h with no autos at all. With it off,
   results improve steadily with auto share. `single_av_ring.toml` turns
   it on (`[auto] dampener = true`).
-- **Merge coordinator.** Each mainline auto opens a gap for the first
-  signalling merger directly ahead of it. A merging auto drops back
-  behind a vehicle alongside it unless that vehicle is the one assigned
-  to yield, which prevents a mutual-yield deadlock found by the gate
-  test.
+- **Hive-mind lane discipline** (user request). Autos make no
+  discretionary lane changes; `Stats::discretionary_auto` is zero by
+  test. Each auto is assigned a lane from the lanes that stay open over
+  its look-ahead. Trucks take the lowest open lane: with random lanes and
+  no overtaking, any lane holding a 95 km/h truck ran at truck speed.
+  Cars spread over the open lanes above it, and cars exiting within
+  about 4 km keep right.
+- **Bus-informed early merging** (user request). Autos act on lane drops
+  and closures up to their 2 km look-ahead, and every planned move is
+  coordinated. MOBIL judges autos at the gap they actually drive (CACC
+  0.6 s); before this fix an auto truck was judged at 1.8 s and refused
+  safe gaps. A forced merge only has to be safe, not advantageous. Wrecks
+  are left out of the bus speed bins, because a known blockage is not a
+  traffic wave.
+- **Merge coordinator** (`merge.rs`) for every forced or planned merge
+  (on-ramps, lane drops, closures):
+  - A merging auto aims for the nearest point of a gap where it fits.
+    When an auto in the target lane is yielding to it, it instead settles
+    behind the car ahead of the yielder. With no gap and no helper, it
+    drifts back gently.
+  - The auto behind eases off at 1 m/s², or 2.5 m/s² within 250 m of the
+    lane end.
+  - A merger stuck beside a car at its lane end is passed rather than
+    waited for. This resolved a side-by-side deadlock that gridlocked
+    I-565.
+
+  Result after a one-lane crash on three lanes at 3,000 veh/h: no auto
+  in the closed lane within 500 m of it, worst mean 97% of desired speed,
+  slowest vehicle 91%.
 
 ### Split view and replay
 
@@ -111,8 +160,9 @@ amplification 1.51 at rush-hour density, jam head 13.8 km/h upstream.
 
 | Question | Default used |
 | --- | --- |
-| Intermediate interchanges | Miles 7 and 13 (configurable) |
-| Lanes per direction | 3 (2 to 6 supported) |
-| Truck share | 8% |
+| Which highway | I-565, Decatur to Huntsville (default scenario) |
+| Intermediate interchanges | I-565's real exits; the generic corridor uses miles 7 and 13 |
+| Lanes per direction | Varies by mile on I-565; 3 on the generic corridor |
+| Truck share | 6% on I-565, 8% on the generic corridor |
 | City B end loop | Carries the 10% through share; everyone else exits |
 | Demo OS | Developed and tested on Linux (Wayland); eframe/wgpu builds on Windows and macOS |

@@ -6,10 +6,12 @@
 
 pub mod auto;
 pub mod bus;
+pub mod corridor;
 pub mod demand;
 pub mod events;
 pub mod human;
 pub mod idm;
+pub mod lane_plan;
 pub mod merge;
 pub mod metrics;
 pub mod mobil;
@@ -46,6 +48,10 @@ pub struct Stats {
     pub autos_spawned: u64,
     pub collisions: u64,
     pub lane_changes: u64,
+    /// Lane changes made with no routing or geometric reason (overtaking,
+    /// keep-right), split by kind. Autos never make these.
+    pub discretionary_human: u64,
+    pub discretionary_auto: u64,
     /// Lane changes that forced the new follower to brake beyond b_safe.
     pub unsafe_lane_changes: u64,
     pub hard_brakes: u64,

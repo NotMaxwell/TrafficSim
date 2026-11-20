@@ -1,6 +1,7 @@
 //! Scenarios bundled into the executable (the files in /scenarios).
 
 pub const BUILTIN: &[(&str, &str)] = &[
+    ("I-565 Decatur ↔ Huntsville", include_str!("../../../scenarios/i565_decatur_huntsville.toml")),
     ("City A ↔ City B corridor", include_str!("../../../scenarios/city_a_to_b.toml")),
     ("Rush hour with incidents", include_str!("../../../scenarios/rush_hour_incidents.toml")),
     ("Sugiyama ring (phantom jam)", include_str!("../../../scenarios/sugiyama_ring.toml")),

@@ -180,7 +180,7 @@ fn axes(p: &egui::Painter, plot: Rect, road: &Road, w: &WorldSnap, dir: Dir, col
 fn headline(ui: &mut egui::Ui, road: &Road, worlds: &[WorldSnap], analysis: &[Analysis; 2]) {
     let fmt_shock = |v: Option<f64>| v.map_or("–".to_string(), |x| format!("{:.0} km/h {}", x.abs(), if x < 0.0 { "upstream" } else { "downstream" }));
     egui::Grid::new("headline").num_columns(8).spacing([14.0, 2.0]).show(ui, |ui| {
-        for h in ["", "throughput (10 min)", "travel A→B (median / p90)", "mean speed", "hard brakes /h", "crashes", "fuel proxy"] {
+        for h in ["", "throughput (10 min)", "end-to-end travel (median / p90)", "mean speed", "hard brakes /h", "crashes", "fuel proxy"] {
             ui.label(RichText::new(h).small().weak());
         }
         ui.label(RichText::new(if road.is_corridor() { "shockwave EB / WB · amplification" } else { "shockwave · amplification" }).small().weak());
@@ -244,7 +244,7 @@ fn series(ui: &mut egui::Ui, id: &str, y_label: &str, rows: [&[Row]; 2], f: impl
 }
 
 fn travel(ui: &mut egui::Ui, rows: [&[Row]; 2]) {
-    Plot::new("travel").legend(Legend::default()).x_axis_label("time (min)").y_axis_label("City A ↔ B travel time (min)").include_y(0.0).show(ui, |p| {
+    Plot::new("travel").legend(Legend::default()).x_axis_label("time (min)").y_axis_label("end-to-end travel time (min)").include_y(0.0).show(ui, |p| {
         for (k, rs) in rows.iter().enumerate() {
             let med: Vec<[f64; 2]> = rs.iter().filter(|r| r.travel_med_min.is_finite()).map(|r| [r.t / 60.0, r.travel_med_min]).collect();
             let p90: Vec<[f64; 2]> = rs.iter().filter(|r| r.travel_p90_min.is_finite()).map(|r| [r.t / 60.0, r.travel_p90_min]).collect();

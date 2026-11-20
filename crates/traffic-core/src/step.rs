@@ -33,8 +33,13 @@ pub fn gap_to(w: &World, s: f64, leader: usize) -> f64 {
 /// Exiting vehicles in their own off-ramp lane do not see the gore as an
 /// obstacle: they leave the road there.
 pub fn lane_end(w: &World, slot: usize, lane: u8, s: f64) -> Option<f64> {
-    let closed = if w.events.closures.is_empty() { None } else { w.events.closure_ahead(&w.road, s, lane, FREE_GAP) };
-    let mut d = w.road.lane_end_ahead(s, lane, FREE_GAP);
+    lane_end_within(w, slot, lane, s, FREE_GAP)
+}
+
+/// Like `lane_end`, looking up to `horizon` metres ahead.
+pub fn lane_end_within(w: &World, slot: usize, lane: u8, s: f64, horizon: f64) -> Option<f64> {
+    let closed = if w.events.closures.is_empty() { None } else { w.events.closure_ahead(&w.road, s, lane, horizon) };
+    let mut d = w.road.lane_end_ahead(s, lane, horizon);
     if lane == 0
         && let Some(r) = w.road.ramp_zone_at(s)
         && r.id == w.veh.agent[slot].exit

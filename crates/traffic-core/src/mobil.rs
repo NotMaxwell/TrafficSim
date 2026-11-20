@@ -8,7 +8,8 @@
 //! lane index, so two vehicles can never take the same gap in one tick.
 
 use crate::idm::FREE_GAP;
-use crate::step::{desired_speed, lane_end};
+pub use crate::lane_plan::{SIGN_DISTANCE, assigned_lane, exits_within, lane_end_horizon, yield_target};
+use crate::step::{desired_speed, lane_end, lane_end_within};
 use crate::vehicles::{Kind, NO_RAMP};
 use crate::World;
 
@@ -36,6 +37,9 @@ pub struct Need {
     pub hard: bool,
     /// Check every tick instead of on the staggered schedule.
     pub urgent: bool,
+    /// The current lane is ending (merge lane, lane drop, closure,
+    /// blockage): any safe change toward `dir` is taken.
+    pub forced: bool,
 }
 
 /// Whatever is ahead of a vehicle at `s` in `lane`: (gap, leader speed).
@@ -58,12 +62,17 @@ pub fn lead_in(w: &World, i: usize, lane: u8, s: f64) -> (Option<usize>, f64, f6
 }
 
 /// IDM acceleration of vehicle `j` behind an obstacle at `gap` moving at `v_l`.
+/// Autos are judged with the time gap they actually drive at (CACC).
 pub fn idm_acc(w: &World, j: usize, gap: f64, v_l: f64) -> f64 {
     if w.veh.agent[j].crashed() {
         return 0.0;
     }
     let v = w.veh.v[j];
-    w.veh.agent[j].driver.idm.accel(v, desired_speed(w, j), gap, v - v_l)
+    let mut idm = w.veh.agent[j].driver.idm;
+    if w.veh.kind[j] == Kind::Auto {
+        idm.t = w.params.auto.t_cacc;
+    }
+    idm.accel(v, desired_speed(w, j), gap, v - v_l)
 }
 
 /// Routing / geometry needs of vehicle `i`.
@@ -71,9 +80,22 @@ pub fn need_of(w: &World, i: usize) -> Need {
     let s = w.veh.s[i];
     let lane = w.veh.lane[i];
     let mp = &w.params.mobil;
-    // Lane ends ahead (on-ramp merge lane, lane drop, closure).
-    if let Some(d) = lane_end(w, i, lane, s)
-        && d < 600.0
+    // Lane ends ahead (on-ramp merge lane, lane drop, closure). Humans see
+    // a closure ~600 m out but are warned of a lane drop by signs ~1 mile
+    // ahead; autos know both from the bus up to their look-ahead.
+    let horizon = lane_end_horizon(w, i);
+    let sign_horizon = horizon.max(SIGN_DISTANCE);
+    let geometric = w.road.lane_end_ahead(s, lane, sign_horizon).filter(|_| !(lane == 0 && w.road.ramp_zone_at(s).is_some_and(|r| r.id == w.veh.agent[i].exit)));
+    let closure = if w.events.closures.is_empty() { None } else { w.events.closure_ahead(&w.road, s, lane, horizon) };
+    let end = match (geometric, closure) {
+        (Some(g), Some(c)) if c < g => Some((c, horizon)),
+        (Some(g), _) => Some((g, sign_horizon)),
+        (None, Some(c)) => Some((c, horizon)),
+        _ => None,
+    };
+    if let Some((d, horizon)) = end
+        && d < horizon
+        && !exits_within(w, i, d)
     {
         // Head for the nearest lane that is open past the obstruction
         // (geometrically present and not closed), preferring the left on ties.
@@ -96,8 +118,8 @@ pub fn need_of(w: &World, i: usize) -> Need {
                 }
             })
             .unwrap_or(if lane == 0 { 1 } else { -1 });
-        let strength = if lane == 0 { 3.0 } else { 0.5 + 3.0 * (1.0 - d / 600.0) };
-        return Need { dir, strength, hard: true, urgent: lane == 0 || d < 300.0 };
+        let strength = if lane == 0 { 3.0 } else { 0.5 + 3.0 * (1.0 - d / horizon) };
+        return Need { dir, strength, hard: true, urgent: lane == 0 || d < 300.0, forced: true };
     }
     // A blockage (crash) just ahead: get out of this lane.
     if let Some(l) = w.veh.leader(i)
@@ -105,7 +127,7 @@ pub fn need_of(w: &World, i: usize) -> Need {
         && w.road.dist(s, w.veh.s[l]) < 250.0
     {
         let dir = if lane > 1 { -1 } else { 1 };
-        return Need { dir, strength: 2.0, hard: false, urgent: true };
+        return Need { dir, strength: 2.0, hard: false, urgent: true, forced: true };
     }
     // Heading for an off-ramp that uses the auxiliary lane.
     let ex = w.veh.agent[i].exit;
@@ -114,13 +136,20 @@ pub fn need_of(w: &World, i: usize) -> Need {
         if !r.all_lanes {
             let d = w.road.dist(s, r.zone_end);
             if lane == 0 && d < r.zone_end - r.zone_start + 1.0 {
-                return Need { dir: 0, strength: 0.0, hard: true, urgent: false };
+                return Need { dir: 0, strength: 0.0, hard: true, urgent: false, forced: false };
             }
             if d < mp.exit_prepare {
                 let x = (1.0 - d / mp.exit_prepare).clamp(0.0, 1.0);
                 let in_zone = d <= r.zone_end - r.zone_start;
-                return Need { dir: -1, strength: 0.6 + 2.4 * x, hard: true, urgent: in_zone };
+                return Need { dir: -1, strength: 0.6 + 2.4 * x, hard: true, urgent: in_zone, forced: false };
             }
+        }
+    }
+    // Autos: move once to the lane the hive mind assigned, then stay.
+    if w.veh.kind[i] == Kind::Auto && lane >= 1 {
+        let target = assigned_lane(w, i);
+        if target != lane {
+            return Need { dir: if target > lane { 1 } else { -1 }, strength: 0.6, hard: true, urgent: false, forced: false };
         }
     }
     Need::default()
@@ -136,8 +165,18 @@ fn lane_allowed(w: &World, i: usize, target: u8) -> bool {
         // Only exiting vehicles, inside their own diverge zone.
         return w.road.ramp_zone_at(s).is_some_and(|r| r.id == w.veh.agent[i].exit);
     }
-    // Not into a closed lane, nor one that is about to end.
-    !w.events.in_closure(&w.road, s, target) && lane_end(w, i, target, s).is_none_or(|d| d > 80.0)
+    // Not into a closed lane, nor one that is about to end. Autos (who
+    // know about lane ends far ahead) avoid any lane that ends within
+    // their horizon, unless their own lane ends even sooner.
+    if w.events.in_closure(&w.road, s, target) {
+        return false;
+    }
+    let h = lane_end_horizon(w, i);
+    match lane_end_within(w, i, target, s, h) {
+        None => true,
+        Some(dt) if exits_within(w, i, dt) => true,
+        Some(dt) => dt > 80.0 && (h <= 600.0 || lane_end_within(w, i, w.veh.lane[i], s, h).is_some_and(|dc| dc < dt)),
+    }
 }
 
 /// Best lane change for `i`, if any: (target lane, incentive).
@@ -165,6 +204,11 @@ pub fn decide(w: &World, i: usize, need: Need) -> Option<u8> {
         f_old_gain = idm_acc(w, f, g_after.min(FREE_GAP), v_after);
     }
 
+    // The hive mind makes no discretionary lane changes: autos only move
+    // for a reason (exit, merge, lane end, assigned lane).
+    if !human && need.dir == 0 {
+        return None;
+    }
     let mut best: Option<(u8, f64)> = None;
     for dir in [-1i8, 1] {
         if need.hard && need.dir != 0 && dir != need.dir {
@@ -240,8 +284,12 @@ pub fn decide(w: &World, i: usize, need: Need) -> Option<u8> {
         } else if need.dir != 0 {
             gain -= need.strength;
         }
-        if t != 0 && lane != 0 {
+        if t != 0 && lane != 0 && human {
             gain += if dir < 0 { mp.bias_right } else { -mp.bias_right };
+        }
+        // A forced merge only has to be safe, not advantageous.
+        if toward && need.forced {
+            gain = gain.max(10.0);
         }
         let th = if toward && need.strength > 1.0 { 0.0 } else { ag.driver.threshold };
         if gain > th && best.is_none_or(|(_, g)| gain > g) {
@@ -274,11 +322,13 @@ pub fn lane_changes(w: &mut World) {
         // keep signalling while they wait for a gap, so others can yield.
         let Some(t) = target else {
             let ag = &mut w.veh.agent[i];
-            let waiting = need.dir != 0 && need.strength >= 1.0;
+            let planned = w.veh.kind[i] == Kind::Auto && need.dir != 0;
+            let waiting = need.dir != 0 && (need.strength >= 1.0 || need.forced || planned);
             if waiting && ag.signal != need.dir {
                 ag.signal_since = w.time;
             }
             ag.signal = if waiting { need.dir } else { 0 };
+            ag.signal_forced = waiting && (need.forced || planned);
             continue;
         };
         let dir = t as i8 - lane as i8;
@@ -288,6 +338,10 @@ pub fn lane_changes(w: &mut World) {
         };
         let near_end = lane_end(w, i, lane, w.veh.s[i]).is_some_and(|d| d < 40.0);
         let ag = &mut w.veh.agent[i];
+        // Autos coordinate every planned move over the bus (gap seeking and
+        // gentle yielding), not only forced ones.
+        let planned = w.veh.kind[i] == Kind::Auto && need.dir != 0;
+        ag.signal_forced = need.dir == dir && (need.forced || planned);
         if ag.signal != dir {
             ag.signal = dir;
             ag.signal_since = w.time;
@@ -306,6 +360,12 @@ pub fn lane_changes(w: &mut World) {
         ag.signal = 0;
         ag.human.filled = 0;
         w.stats.lane_changes += 1;
+        if need.dir == 0 {
+            match w.veh.kind[i] {
+                Kind::Human => w.stats.discretionary_human += 1,
+                Kind::Auto => w.stats.discretionary_auto += 1,
+            }
+        }
         // Audit with true state (humans may have missed someone in the mirror).
         if let Some(f) = w.veh.follower(i)
             && f != i
@@ -318,35 +378,3 @@ pub fn lane_changes(w: &mut World) {
     }
 }
 
-/// Courtesy: a vehicle signalling into `slot`'s lane just ahead of it, if
-/// yielding to it needs no more than comfortable braking. Returns
-/// (gap, speed) of that vehicle.
-pub fn yield_target(w: &World, slot: usize) -> Option<(f64, f64)> {
-    let lane = w.veh.lane[slot];
-    let s = w.veh.s[slot];
-    let mut best: Option<(f64, f64)> = None;
-    for adj in [lane as i16 - 1, lane as i16 + 1] {
-        if !(0..=w.road.lanes as i16).contains(&adj) {
-            continue;
-        }
-        let (lead, _) = w.veh.around(adj as u8, s, slot);
-        let Some(n) = lead else { continue };
-        if w.veh.lane[n] as i16 + w.veh.agent[n].signal as i16 != lane as i16 {
-            continue;
-        }
-        let gap = w.road.dist(s, w.veh.s[n]) - w.veh.len[n];
-        if !(0.0..=YIELD_RANGE).contains(&gap) {
-            continue;
-        }
-        if idm_acc(w, slot, gap, w.veh.v[n]) < -w.veh.agent[slot].driver.idm.b {
-            continue;
-        }
-        if best.is_none_or(|(g, _)| gap < g) {
-            best = Some((gap, w.veh.v[n]));
-        }
-    }
-    best
-}
-
-/// How far ahead a signalling vehicle is noticed for yielding, m.
-const YIELD_RANGE: f64 = 50.0;

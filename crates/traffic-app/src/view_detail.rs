@@ -72,8 +72,8 @@ pub fn detail(ui: &mut egui::Ui, road: &Road, snap: &WorldSnap, cam: &mut Camera
     let x0 = rect.left() + 14.0;
     painter.line_segment([pos2(x0, y), pos2(x0 + bar_m * px_per_m, y)], Stroke::new(2.0, text));
     painter.text(pos2(x0, y - 4.0), Align2::LEFT_BOTTOM, format!("{bar_m:.0} m"), FontId::proportional(11.0), text);
-    painter.text(pos2(inner.left(), eb.rect.top() - 4.0), Align2::LEFT_BOTTOM, "Eastbound  >>  City B", FontId::proportional(12.0), text);
-    painter.text(pos2(inner.right(), wb.rect.bottom() + 4.0), Align2::RIGHT_TOP, "City A  <<  Westbound", FontId::proportional(12.0), text);
+    painter.text(pos2(inner.left(), eb.rect.top() - 4.0), Align2::LEFT_BOTTOM, format!("Eastbound  >>  {}", road.city_b), FontId::proportional(12.0), text);
+    painter.text(pos2(inner.right(), wb.rect.bottom() + 4.0), Align2::RIGHT_TOP, format!("{}  <<  Westbound", road.city_a), FontId::proportional(12.0), text);
     let follow = cam.follow.map_or(String::new(), |id| format!(" · following #{id}"));
     painter.text(
         pos2(rect.center().x, rect.top() + 6.0),

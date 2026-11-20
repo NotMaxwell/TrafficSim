@@ -23,7 +23,8 @@ pub struct Percept {
     pub dv: [f32; 3],
     pub n: u8,
     pub v: f32,
-    /// Courtesy target (signalling car ahead in the next lane): gap, Δv.
+    /// Courtesy target (signalling car ahead in the next lane, already
+    /// filtered to what the driver is willing to brake for): gap, Δv.
     /// gap < 0 means none.
     pub yield_gap: f32,
     pub yield_dv: f32,
@@ -39,11 +40,24 @@ pub struct HumanState {
     pub w_gap: f64,
     pub w_rate: f64,
     pub distracted_until: f64,
+    /// Current direct leader and when it became the leader (a new car
+    /// directly ahead = a cut-in).
+    pub leader: u64,
+    pub leader_since: f64,
 }
 
 impl Default for HumanState {
     fn default() -> Self {
-        HumanState { buf: [Percept::default(); BUF], head: 0, filled: 0, w_gap: 0.0, w_rate: 0.0, distracted_until: -1.0 }
+        HumanState {
+            buf: [Percept::default(); BUF],
+            head: 0,
+            filled: 0,
+            w_gap: 0.0,
+            w_rate: 0.0,
+            distracted_until: -1.0,
+            leader: u64::MAX,
+            leader_since: f64::NEG_INFINITY,
+        }
     }
 }
 
@@ -139,8 +153,13 @@ pub fn perceive(w: &mut World) {
         }
         let truth = observe(w, i);
         let t = w.time;
+        let leader = w.veh.leader(i).map_or(u64::MAX, |l| w.veh.id[l]);
         let ag = &mut w.veh.agent[i];
         let hs = &mut ag.human;
+        if leader != hs.leader {
+            hs.leader = leader;
+            hs.leader_since = t;
+        }
         if h.distraction {
             // Drivers look away only when traffic ahead is calm: nobody
             // closer than 2 s, not closing in. Peripheral vision ends a
@@ -176,22 +195,49 @@ pub fn perceive(w: &mut World) {
     }
 }
 
+/// Reaction delay for braking when a car has just cut in ahead at crawling
+/// speed, s. The merging car was signalling right beside the driver, so
+/// the response is an expected one (Green 2000: 0.70-0.75 s).
+pub const PRIMED_TAU: f64 = 0.7;
+/// How long after a cut-in the primed response applies, s.
+const PRIMED_FOR: f64 = 3.0;
+/// Deceleration that counts as a clear braking cue, m/s².
+const PRIMED_CUE: f64 = 1.0;
+/// Below this speed drivers are fully primed, m/s.
+const PRIMED_BELOW: f64 = 8.0;
+
 /// Step 5 (humans): IDM with multi-anticipation on the delayed percept.
 ///
 /// Temporal anticipation (HDM): drivers know their own current speed and
 /// extrapolate each delayed gap over their reaction time assuming constant
-/// speeds, s ≈ s(t−τ) − τ·Δv(t−τ). They still react to changes only τ late.
+/// speeds, s ≈ s(t−τ) − τ·Δv(t−τ). They still react to changes only τ late,
+/// except right after a car cuts in at crawling speed (primed braking).
 pub fn accel(w: &World, i: usize, v0: f64) -> f64 {
     let ag = &w.veh.agent[i];
     let mut drv = ag.driver;
     if !w.events.weather.is_empty() {
         drv.idm.t *= w.events.weather_at(&w.road, w.veh.s[i]).1;
     }
-    let d = &drv;
-    let mut p = if d.tau > 0.0 { ag.human.delayed(d.tau / w.dt) } else { ag.human.latest() };
-    let v = if d.tau > 0.0 && w.params.human.temporal_anticipation {
+    let a = accel_with_delay(w, i, &drv, drv.tau, v0);
+    let v = w.veh.v[i];
+    let cut_in = w.time - ag.human.leader_since < PRIMED_FOR;
+    if cut_in && drv.tau > PRIMED_TAU && v < PRIMED_BELOW {
+        // Only a clear braking cue (brake-light strength) gets the primed
+        // response; small creeping changes still take the full delay.
+        let primed = accel_with_delay(w, i, &drv, PRIMED_TAU, v0);
+        if primed < a && primed < -PRIMED_CUE {
+            return a + (primed - a) * (1.0 - v / PRIMED_BELOW);
+        }
+    }
+    a
+}
+
+fn accel_with_delay(w: &World, i: usize, d: &crate::vehicles::Driver, tau: f64, v0: f64) -> f64 {
+    let ag = &w.veh.agent[i];
+    let mut p = if tau > 0.0 { ag.human.delayed(tau / w.dt) } else { ag.human.latest() };
+    let v = if tau > 0.0 && w.params.human.temporal_anticipation {
         for j in 0..p.n as usize {
-            p.gap[j] = (p.gap[j] - (d.tau as f32) * p.dv[j] / (j as f32 + 1.0)).max(0.1);
+            p.gap[j] = (p.gap[j] - (tau as f32) * p.dv[j] / (j as f32 + 1.0)).max(0.1);
         }
         w.veh.v[i]
     } else {
@@ -207,10 +253,10 @@ pub fn accel(w: &World, i: usize, v0: f64) -> f64 {
             a += c * d.idm.interaction(v, p.gap[j] as f64, p.dv[j] as f64);
         }
     }
-    // Courtesy yielding is an extra constraint, at most comfortable braking.
+    // Courtesy yielding is an extra constraint, at most b_safe braking.
     if p.yield_gap >= 0.0 {
         let ay = d.idm.free(v, v0) + d.idm.interaction(v, p.yield_gap as f64, p.yield_dv as f64);
-        a = a.min(ay.max(-d.idm.b));
+        a = a.min(ay.max(-w.params.mobil.b_safe));
     }
     a.clamp(-crate::idm::B_MAX, d.idm.a)
 }

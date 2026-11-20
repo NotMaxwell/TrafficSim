@@ -154,8 +154,14 @@ pub fn accel(w: &World, i: usize) -> AutoOut {
         a
     };
     a_cmd = a_cmd.min(idm.free(v, v0)).min(a_la);
-    // Ramp merge coordinator (zipper).
-    if let Some(a_m) = crate::merge::constraint(w, i) {
+    // Merge coordinator: line up with a gap, or make room for a merger.
+    let mc = crate::merge::command(w, i);
+    if let Some(a_seek) = mc.seek {
+        // Seeking replaces car following, within the IDM safety envelope.
+        let env = crate::idm::Idm { t: p.t_cacc, ..idm };
+        a_cmd = a_seek.min(env.accel(v, v0, lead.gap, v - lead.v)).min(a_la);
+    }
+    if let Some(a_m) = mc.limit {
         a_cmd = a_cmd.min(a_m);
     }
     // Courtesy: also make room for a vehicle signalling into this lane.

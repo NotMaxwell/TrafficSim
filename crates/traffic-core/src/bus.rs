@@ -145,9 +145,13 @@ pub fn publish(w: &mut World) {
             intent: ag.auto.intent,
             auto,
         });
-        let k = ((s / BIN) as usize).min(nbins - 1);
-        snap.bin_v[k] += w.veh.v[i] as f32;
-        snap.bin_n[k] += 1;
+        // Wrecks are a known blockage (closed lane), not a traffic wave:
+        // keep them out of the speed bins the look-ahead reads.
+        if !ag.crashed() {
+            let k = ((s / BIN) as usize).min(nbins - 1);
+            snap.bin_v[k] += w.veh.v[i] as f32;
+            snap.bin_n[k] += 1;
+        }
     }
     snap.entries.sort_unstable_by_key(|e| e.id);
     w.bus.history.push_back(snap);

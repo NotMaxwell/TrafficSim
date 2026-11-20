@@ -80,7 +80,8 @@ pub fn profile_at(profile: &[[f64; 2]], hour: f64) -> f64 {
 pub struct RampState {
     pub ramp: u16,
     pub base_vph: f64,
-    pub city_a: bool,
+    /// Eastbound entry (uses profile A); westbound uses profile B.
+    pub eastbound: bool,
     /// Extra demand from surge events, veh/h.
     pub surge_vph: f64,
     rng: ChaCha8Rng,
@@ -103,16 +104,15 @@ impl Demand {
         let ramps = road
             .on_ramps()
             .map(|r| {
-                let city_a = r.city && r.mile == 0.0;
-                let base_vph = match (r.city, city_a) {
+                let default = match (r.city, r.mile == 0.0) {
                     (true, true) => cfg.city_a_vph,
                     (true, false) => cfg.city_b_vph,
                     _ => cfg.interchange_vph,
                 };
                 RampState {
                     ramp: r.id,
-                    base_vph,
-                    city_a,
+                    base_vph: r.vph.unwrap_or(default),
+                    eastbound: r.dir == crate::road::Dir::East,
                     surge_vph: 0.0,
                     rng: rng::stream(seed, Purpose::Arrivals, r.id as u64),
                     queue: VecDeque::new(),
@@ -128,7 +128,7 @@ impl Demand {
     pub fn rate(&self, k: usize, t: f64) -> f64 {
         let r = &self.ramps[k];
         let hour = self.cfg.start_hour + t / 3600.0;
-        let prof = if r.city_a { &self.cfg.profile_a } else { &self.cfg.profile_b };
+        let prof = if r.eastbound { &self.cfg.profile_a } else { &self.cfg.profile_b };
         (r.base_vph * profile_at(prof, hour) * self.cfg.multiplier + r.surge_vph).max(0.0)
     }
 
@@ -158,7 +158,7 @@ pub fn choose_exit(road: &Road, seed: u64, id: u64, s: f64, cfg: &DemandConfig) 
             cities += 1;
             if cities == 1 { 1.0 - cfg.through_share } else { 1.0 }
         } else {
-            cfg.interchange_exit_share
+            e.exit_share.unwrap_or(cfg.interchange_exit_share)
         };
         if r.random::<f64>() < p {
             return e.id;

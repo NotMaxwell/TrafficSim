@@ -77,6 +77,7 @@ pub fn make_agent(w: &World, id: u64, origin: u16, exit: u16) -> (Kind, Agent, f
         hard_braking: false,
         signal: 0,
         signal_since: 0.0,
+        signal_forced: false,
     };
     (kind, agent, len)
 }

@@ -65,9 +65,38 @@ pub fn bands(rect: Rect, lanes: u8, median: f32) -> (Band, Band) {
 /// Draw the asphalt, ramp stubs and markings for a mile window.
 pub fn draw_road(painter: &egui::Painter, road: &Road, band: &Band, m0: f64, m1: f64, detail: bool) {
     let lp = band.lane_px();
-    let (ya, yb) = (band.lane_y(1, 0.0), band.lane_y(road.lanes, 0.0));
-    let main = Rect::from_x_y_ranges(band.rect.x_range(), ya.min(yb) - lp * 0.5..=ya.max(yb) + lp * 0.5);
-    painter.rect_filled(main, 0.0, theme::ASPHALT);
+    // Sample which mainline lanes exist across the window (lane drops,
+    // work zones), every couple of pixels.
+    let step = 2.0_f32;
+    let cols = ((band.rect.width() / step).ceil() as usize).max(1);
+    let mile_at = |k: usize| m0 + (m1 - m0) * ((k as f64 + 0.5) / cols as f64);
+    let exists: Vec<Vec<bool>> = (0..=road.lanes)
+        .map(|l| (0..cols).map(|k| l > 0 && road.lane_exists(road.from_corridor(band.dir, mile_at(k)), l)).collect())
+        .collect();
+    let x_of = |k: usize| band.rect.left() + k as f32 * step;
+    // Runs of true values -> [x0, x1) pixel ranges.
+    let runs = |v: &dyn Fn(usize) -> bool| {
+        let mut out = Vec::new();
+        let mut start = None;
+        for k in 0..=cols {
+            let on = k < cols && v(k);
+            match (on, start) {
+                (true, None) => start = Some(k),
+                (false, Some(k0)) => {
+                    out.push((x_of(k0), x_of(k).min(band.rect.right())));
+                    start = None;
+                }
+                _ => {}
+            }
+        }
+        out
+    };
+    for lane in 1..=road.lanes {
+        let y = band.lane_y(lane, 0.0);
+        for (x0, x1) in runs(&|k| exists[lane as usize][k]) {
+            painter.rect_filled(Rect::from_x_y_ranges(x0..=x1, y - lp * 0.5..=y + lp * 0.5), 0.0, theme::ASPHALT);
+        }
+    }
     // Auxiliary lanes at ramps.
     for r in road.ramps.iter().filter(|r| r.dir == band.dir && !r.all_lanes) {
         let (a, b) = (road.to_corridor(r.zone_start), road.to_corridor(r.zone_end - 0.01));
@@ -84,18 +113,30 @@ pub fn draw_road(painter: &egui::Painter, road: &Road, band: &Band, m0: f64, m1:
             painter.text(rr.center(), Align2::CENTER_CENTER, &r.name, FontId::proportional(11.0), col);
         }
     }
-    if detail {
-        let edge = Stroke::new(1.5, theme::EDGE_MARK);
-        painter.line_segment([main.left_top(), main.right_top()], edge);
-        painter.line_segment([main.left_bottom(), main.right_bottom()], edge);
-        // Dashed lane lines: 3 m dash / 9 m gap scaled to pixels.
-        let px_per_m = band.rect.width() / ((m1 - m0) * MILE) as f32;
-        let period = (12.0 * px_per_m).max(6.0);
-        for lane in 1..road.lanes {
-            let y = (band.lane_y(lane, 0.0) + band.lane_y(lane + 1, 0.0)) * 0.5;
-            let mut x = band.rect.left();
-            while x < band.rect.right() {
-                painter.line_segment([pos2(x, y), pos2((x + period * 0.3).min(band.rect.right()), y)], Stroke::new(1.0, theme::LANE_MARK));
+    if !detail {
+        return;
+    }
+    // Edge lines: outside of lane 1, and wherever a lane has no neighbour
+    // on its left. Dashed lines between two lanes that both exist.
+    let edge = Stroke::new(1.5, theme::EDGE_MARK);
+    let side = |lane: u8, toward: f32| band.lane_y(lane, 0.0) + (band.lane_y(lane + 1, 0.0) - band.lane_y(lane, 0.0)).signum() * toward * lp * 0.5;
+    for (x0, x1) in runs(&|k| exists[1][k]) {
+        let y = side(1, -1.0);
+        painter.line_segment([pos2(x0, y), pos2(x1, y)], edge);
+    }
+    let px_per_m = band.rect.width() / ((m1 - m0) * MILE) as f32;
+    let period = (12.0 * px_per_m).max(6.0);
+    for lane in 1..=road.lanes {
+        let l = lane as usize;
+        let next = |k: usize| l < road.lanes as usize && exists[l + 1][k];
+        let y = side(lane, 1.0);
+        for (x0, x1) in runs(&|k| exists[l][k] && !next(k)) {
+            painter.line_segment([pos2(x0, y), pos2(x1, y)], edge);
+        }
+        for (x0, x1) in runs(&|k| exists[l][k] && next(k)) {
+            let mut x = x0;
+            while x < x1 {
+                painter.line_segment([pos2(x, y), pos2((x + period * 0.3).min(x1), y)], Stroke::new(1.0, theme::LANE_MARK));
                 x += period;
             }
         }
@@ -180,8 +221,8 @@ pub fn strip(ui: &mut egui::Ui, road: &Road, snap: &WorldSnap, cam: &Camera, by:
     let (resp, painter) = ui.allocate_painter(vec2(ui.available_width(), height), Sense::click_and_drag());
     let rect = resp.rect;
     painter.rect_filled(rect, 4.0, theme::bg_road(ui));
-    let label_w = 54.0;
-    let inner = Rect::from_min_max(pos2(rect.left() + label_w, rect.top() + 14.0), pos2(rect.right() - label_w, rect.bottom() - 4.0));
+    let label_w = 40.0;
+    let inner = Rect::from_min_max(pos2(rect.left() + label_w, rect.top() + 26.0), pos2(rect.right() - 8.0, rect.bottom() - 4.0));
     let m1 = road.corridor / MILE;
     let (eb, wb) = bands(inner, road.lanes, 6.0);
     let mut mesh = Mesh::default();
@@ -205,15 +246,15 @@ pub fn strip(ui: &mut egui::Ui, road: &Road, snap: &WorldSnap, cam: &Camera, by:
     for m in 0..=(m1 as i32) {
         let x = eb.x(m as f64, 0.0, m1);
         let major = m % 5 == 0;
-        painter.line_segment([pos2(x, rect.top() + 10.0), pos2(x, rect.top() + if major { 14.0 } else { 12.0 })], Stroke::new(1.0, weak));
+        painter.line_segment([pos2(x, rect.top() + 22.0), pos2(x, rect.top() + if major { 26.0 } else { 24.0 })], Stroke::new(1.0, weak));
         if major {
-            painter.text(pos2(x, rect.top() + 1.0), Align2::CENTER_TOP, format!("mi {m}"), FontId::proportional(10.0), weak);
+            painter.text(pos2(x, rect.top() + 13.0), Align2::CENTER_TOP, format!("mi {m}"), FontId::proportional(10.0), weak);
         }
     }
     painter.text(pos2(rect.left() + 6.0, eb.rect.center().y), Align2::LEFT_CENTER, "EB >", FontId::proportional(11.0), text);
     painter.text(pos2(rect.left() + 6.0, wb.rect.center().y), Align2::LEFT_CENTER, "< WB", FontId::proportional(11.0), text);
-    painter.text(pos2(rect.left() + 6.0, rect.top() + 1.0), Align2::LEFT_TOP, "City A", FontId::proportional(11.0), text);
-    painter.text(pos2(rect.right() - 6.0, rect.top() + 1.0), Align2::RIGHT_TOP, "City B", FontId::proportional(11.0), text);
+    painter.text(pos2(rect.left() + 6.0, rect.top() + 1.0), Align2::LEFT_TOP, &road.city_a, FontId::proportional(11.0), text);
+    painter.text(pos2(rect.right() - 6.0, rect.top() + 1.0), Align2::RIGHT_TOP, &road.city_b, FontId::proportional(11.0), text);
     // Camera window.
     let half_mi = cam.half_m / MILE;
     let (x0, x1) = (eb.x(cam.mile - half_mi, 0.0, m1), eb.x(cam.mile + half_mi, 0.0, m1));

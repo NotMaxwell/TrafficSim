@@ -65,6 +65,8 @@ pub struct Agent {
     /// Turn signal: -1 right, +1 left, 0 off; and when it came on.
     pub signal: i8,
     pub signal_since: f64,
+    /// The signalled change is forced (lane ending): others yield harder.
+    pub signal_forced: bool,
 }
 
 impl Agent {

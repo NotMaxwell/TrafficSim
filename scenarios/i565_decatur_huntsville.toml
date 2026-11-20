@@ -1,0 +1,168 @@
+name = "I-565 Decatur - Huntsville"
+description = """I-565 from I-65 at Decatur (mile 0) to US 72 in Huntsville (mile 22.1), both directions, closed into a ring through the end loops. \
+Exits, mileposts and speed limits follow the Wikipedia exit list; the County Line Rd - Wall-Triana stretch is two lanes each way (widening work zone, due 2027) \
+and the highway narrows to two lanes east of Memorial Parkway. Ramp volumes are estimates calibrated to ~70,000 vehicles/day through Madison: \
+morning peak eastbound toward Redstone Arsenal and Research Park, evening peak westbound. Left: all human. Right: all auto."""
+seed = 565
+dt = 0.1
+duration_s = 7200.0
+
+[road]
+kind = "corridor"
+corridor_mi = 22.1
+lanes = 3
+loop_lanes = 2
+loop_m = 500.0
+ramp_zone_m = 300.0
+speed_limit_mph = 70.0
+loop_limit_mph = 35.0
+city_a = "Decatur (I-65)"
+city_b = "Huntsville (US 72)"
+city_terminal = true
+
+# Lane counts by mile (both directions); everything else has 3 lanes.
+[[road.lane_segments]]
+from_mi = 7.0
+to_mi = 9.2
+lanes = 2          # County Line Rd - Wall-Triana: widening work zone until 2027
+
+[[road.lane_segments]]
+from_mi = 19.3
+to_mi = 22.1
+lanes = 2          # east of Memorial Parkway
+
+[[road.limit_segments]]
+from_mi = 18.7
+to_mi = 22.1
+mph = 65.0         # limit drops just west of Memorial Parkway
+
+# Interchanges: peak on-ramp volumes (veh/h) and exit shares of passing
+# traffic, per direction. EB peaks in the morning, WB in the evening.
+[[road.interchanges]]
+mile = 1.26
+name = "Exit 2 Mooresville Rd"
+on_vph_eb = 250.0
+exit_share_eb = 0.03
+on_vph_wb = 100.0
+exit_share_wb = 0.08
+
+[[road.interchanges]]
+mile = 3.47
+name = "Exit 3 Greenbrier Rd"
+on_vph_eb = 350.0
+exit_share_eb = 0.04
+on_vph_wb = 150.0
+exit_share_wb = 0.10
+
+[[road.interchanges]]
+mile = 6.7
+name = "Exit 7 County Line Rd"
+on_vph_eb = 700.0
+exit_share_eb = 0.06
+on_vph_wb = 250.0
+exit_share_wb = 0.15
+
+[[road.interchanges]]
+mile = 7.98
+name = "Exit 8 Airport"
+on_vph_eb = 150.0
+exit_share_eb = 0.03
+on_vph_wb = 100.0
+exit_share_wb = 0.04
+
+[[road.interchanges]]
+mile = 9.19
+name = "Exit 9 Wall-Triana Hwy"
+on_vph_eb = 900.0
+exit_share_eb = 0.07
+on_vph_wb = 300.0
+exit_share_wb = 0.14
+
+[[road.interchanges]]
+mile = 10.56
+name = "Exit 10 Town Madison Blvd"
+on_vph_eb = 450.0
+exit_share_eb = 0.05
+on_vph_wb = 250.0
+exit_share_wb = 0.10
+
+[[road.interchanges]]
+mile = 13.02
+name = "Exit 13 Madison Blvd"   # westbound exit, eastbound entrance only
+eb_off = false
+wb_on = false
+on_vph_eb = 600.0
+exit_share_wb = 0.08
+
+[[road.interchanges]]
+mile = 14.34
+name = "Exit 14 Research Park Blvd"
+on_vph_eb = 300.0
+exit_share_eb = 0.28
+on_vph_wb = 1250.0
+exit_share_wb = 0.05
+
+[[road.interchanges]]
+mile = 15.9
+name = "Exit 15 Sparkman Dr"
+on_vph_eb = 300.0
+exit_share_eb = 0.14
+on_vph_wb = 1000.0
+exit_share_wb = 0.05
+
+[[road.interchanges]]
+mile = 17.15
+name = "Exit 17 Jordan Ln"
+on_vph_eb = 350.0
+exit_share_eb = 0.14
+on_vph_wb = 700.0
+exit_share_wb = 0.06
+
+[[road.interchanges]]
+mile = 19.02
+name = "Exit 19 Memorial Pkwy"
+on_vph_eb = 350.0
+exit_share_eb = 0.25
+on_vph_wb = 1100.0
+exit_share_wb = 0.06
+
+[[road.interchanges]]
+mile = 19.56
+name = "Exit 19C Downtown"
+on_vph_eb = 150.0
+exit_share_eb = 0.25
+on_vph_wb = 600.0
+exit_share_wb = 0.05
+
+[[road.interchanges]]
+mile = 20.63
+name = "Exit 20 Oakwood Ave"
+on_vph_eb = 100.0
+exit_share_eb = 0.25
+on_vph_wb = 300.0
+exit_share_wb = 0.04
+
+[[road.interchanges]]
+mile = 21.61
+name = "Exit 21 Maysville Rd"
+on_vph_eb = 100.0
+exit_share_eb = 0.35
+on_vph_wb = 300.0
+exit_share_wb = 0.05
+
+[population]
+initial_density = 10.0
+truck_share = 0.06
+
+[demand]
+city_a_vph = 2400.0    # from I-65 / SR 20 at Decatur, eastbound peak
+city_b_vph = 1200.0    # from US 72 at Huntsville, westbound peak
+through_share = 0.05
+start_hour = 6.5
+profile_a = [[0.0, 0.15], [5.5, 0.35], [6.5, 0.85], [7.25, 1.0], [8.5, 0.75], [10.0, 0.5], [15.0, 0.55], [17.0, 0.6], [19.0, 0.35], [22.0, 0.15]]
+profile_b = [[0.0, 0.15], [6.0, 0.4], [7.5, 0.55], [10.0, 0.5], [15.0, 0.75], [16.5, 1.0], [17.5, 0.95], [19.0, 0.45], [22.0, 0.15]]
+multiplier = 1.0
+
+[mix]
+left = 0.0
+right = 1.0
