@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::bus::BusParams;
 use crate::demand::DemandConfig;
 use crate::params::{AutoParams, HumanParams, MobilParams, Params, TruckParams};
 use crate::road::{CorridorGeometry, Road};
@@ -94,6 +95,7 @@ pub struct Scenario {
     pub auto: AutoParams,
     pub truck: TruckParams,
     pub mobil: MobilParams,
+    pub bus: BusParams,
 }
 
 impl Default for Scenario {
@@ -112,6 +114,7 @@ impl Default for Scenario {
             auto: AutoParams::default(),
             truck: TruckParams::default(),
             mobil: MobilParams::default(),
+            bus: BusParams::default(),
         }
     }
 }

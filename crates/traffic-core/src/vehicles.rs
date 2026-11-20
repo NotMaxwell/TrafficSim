@@ -62,6 +62,9 @@ pub struct Agent {
     pub s_prev: f64,
     /// Was braking hard (< -3 m/s²) last tick (for counting onsets).
     pub hard_braking: bool,
+    /// Turn signal: -1 right, +1 left, 0 off; and when it came on.
+    pub signal: i8,
+    pub signal_since: f64,
 }
 
 impl Agent {

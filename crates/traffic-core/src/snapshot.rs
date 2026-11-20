@@ -10,6 +10,8 @@ pub const FLAG_BRAKING: u8 = 4;
 pub const FLAG_CRASHED: u8 = 8;
 pub const FLAG_CACC: u8 = 16;
 pub const FLAG_DISTRACTED: u8 = 32;
+pub const FLAG_SIGNAL_LEFT: u8 = 64;
+pub const FLAG_SIGNAL_RIGHT: u8 = 128;
 
 /// 16 bytes per vehicle.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -62,6 +64,11 @@ impl World {
             }
             if ag.human.distracted_until > self.time {
                 flags |= FLAG_DISTRACTED;
+            }
+            match ag.signal {
+                1 => flags |= FLAG_SIGNAL_LEFT,
+                -1 => flags |= FLAG_SIGNAL_RIGHT,
+                _ => {}
             }
             VehDraw {
                 s: self.veh.s[i] as f32,

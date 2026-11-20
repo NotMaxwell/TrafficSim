@@ -38,13 +38,20 @@ struct App {
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Optional command line: --scenario <index> --speed <x>
+        // Optional command line: --scenario <index> --speed <x> --mile <m> --zoom <half width m>
         let args: Vec<String> = std::env::args().collect();
         let arg = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1));
         let scenario_idx = arg("--scenario").and_then(|s| s.parse().ok()).unwrap_or(0).min(scenarios::BUILTIN.len() - 1);
         let speed = arg("--speed").and_then(|s| s.parse().ok()).unwrap_or(1.0);
         let sc = scenarios::load(scenarios::BUILTIN[scenario_idx].1);
         let share = [sc.mix.left, sc.mix.right];
+        let mut camera = view_strip::Camera::default();
+        if let Some(m) = arg("--mile").and_then(|s| s.parse().ok()) {
+            camera.mile = m;
+        }
+        if let Some(z) = arg("--zoom").and_then(|s| s.parse().ok()) {
+            camera.half_m = z;
+        }
         let runner = Runner::start(sc, cc.egui_ctx.clone());
         runner.send(Cmd::Speed(speed));
         App {
@@ -55,7 +62,7 @@ impl App {
             color_by: ColorBy::Speed,
             fps: 0.0,
             capture: capture::Capture::from_args(&args),
-            camera: Default::default(),
+            camera,
         }
     }
 

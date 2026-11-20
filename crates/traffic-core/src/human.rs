@@ -23,6 +23,10 @@ pub struct Percept {
     pub dv: [f32; 3],
     pub n: u8,
     pub v: f32,
+    /// Courtesy target (signalling car ahead in the next lane): gap, Δv.
+    /// gap < 0 means none.
+    pub yield_gap: f32,
+    pub yield_dv: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -74,6 +78,10 @@ impl HumanState {
             p.dv[j] = a.dv[j] + (b.dv[j] - a.dv[j]) * f;
         }
         p.v = a.v + (b.v - a.v) * f;
+        if a.yield_gap >= 0.0 && b.yield_gap >= 0.0 {
+            p.yield_gap = a.yield_gap + (b.yield_gap - a.yield_gap) * f;
+            p.yield_dv = a.yield_dv + (b.yield_dv - a.yield_dv) * f;
+        }
         p
     }
 }
@@ -83,7 +91,7 @@ fn observe(w: &World, i: usize) -> Percept {
     let h = &w.params.human;
     let s = w.veh.s[i];
     let v = w.veh.v[i];
-    let mut p = Percept { v: v as f32, ..Default::default() };
+    let mut p = Percept { v: v as f32, yield_gap: -1.0, ..Default::default() };
     let n_max = w.veh.agent[i].driver.anticipation.clamp(1, 3) as usize;
     let end = lane_end(w, i, w.veh.lane[i], s);
     let mut lengths = 0.0;
@@ -109,7 +117,12 @@ fn observe(w: &World, i: usize) -> Percept {
         && (p.n == 0 || (d as f32) < p.gap[0])
         && d < h.perception_range
     {
-        p = Percept { gap: [d as f32, 0.0, 0.0], dv: [v as f32, 0.0, 0.0], n: 1, v: v as f32 };
+        p = Percept { gap: [d as f32, 0.0, 0.0], dv: [v as f32, 0.0, 0.0], n: 1, v: v as f32, ..p };
+    }
+    // Courtesy: make room for a signalling car just ahead in the next lane.
+    if let Some((gap, vn)) = crate::mobil::yield_target(w, i) {
+        p.yield_gap = gap as f32;
+        p.yield_dv = (v - vn) as f32;
     }
     p
 }
@@ -150,6 +163,9 @@ pub fn perceive(w: &mut World) {
         if h.estimation {
             hs.w_gap = decay * hs.w_gap + kick * ag.rng.normal();
             hs.w_rate = decay * hs.w_rate + kick * ag.rng.normal();
+            if p.yield_gap >= 0.0 {
+                p.yield_gap = (p.yield_gap as f64 * (h.gap_error * hs.w_gap).exp()) as f32;
+            }
             for j in 0..p.n as usize {
                 let g = p.gap[j] as f64;
                 p.gap[j] = (g * (h.gap_error * hs.w_gap).exp()) as f32;
@@ -186,6 +202,11 @@ pub fn accel(w: &World, i: usize, v0: f64) -> f64 {
             let c = 1.0 / ((j + 1) * (j + 1)) as f64 / norm;
             a += c * d.idm.interaction(v, p.gap[j] as f64, p.dv[j] as f64);
         }
+    }
+    // Courtesy yielding is an extra constraint, at most comfortable braking.
+    if p.yield_gap >= 0.0 {
+        let ay = d.idm.free(v, v0) + d.idm.interaction(v, p.yield_gap as f64, p.yield_dv as f64);
+        a = a.min(ay.max(-d.idm.b));
     }
     a.clamp(-crate::idm::B_MAX, d.idm.a)
 }

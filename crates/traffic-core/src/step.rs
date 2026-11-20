@@ -3,7 +3,8 @@
 //! sequences them and holds the shared leader query and integrator.
 
 use crate::idm::{self, FREE_GAP};
-use crate::{demand, human, mobil};
+use crate::auto::AutoState;
+use crate::{auto, bus, demand, human, mobil};
 use crate::vehicles::Kind;
 use crate::World;
 
@@ -86,8 +87,23 @@ pub fn step(w: &mut World) {
     // 3. Perception (after lane changes, so a driver who just changed
     //    lanes looks at the new lane).
     human::perceive(w);
-    // 5. Accelerations.
-    let acc: Vec<f64> = (0..w.veh.len()).map(|i| accel(w, i)).collect();
+    // 2. Autos publish to the state bus.
+    bus::publish(w);
+    // 5. Accelerations (auto controller state is applied afterwards so
+    //    every vehicle decides on the same snapshot).
+    let mut auto_states = Vec::new();
+    let acc: Vec<f64> = (0..w.veh.len())
+        .map(|i| {
+            let (a, st) = accel(w, i);
+            if let Some(st) = st {
+                auto_states.push((i, st));
+            }
+            a
+        })
+        .collect();
+    for (i, st) in auto_states {
+        w.veh.agent[i].auto = st;
+    }
     // 6. Integrate, remove exiting vehicles, re-sort.
     integrate(w, &acc);
     demand::exits(w);
@@ -97,13 +113,15 @@ pub fn step(w: &mut World) {
     w.tick += 1;
 }
 
-/// Commanded acceleration of vehicle `i` for this tick.
-pub fn accel(w: &World, i: usize) -> f64 {
+/// Acceleration of vehicle `i` for this tick, plus the new controller
+/// state for autos.
+pub fn accel(w: &World, i: usize) -> (f64, Option<AutoState>) {
     let ag = &w.veh.agent[i];
     if ag.crashed() {
-        return 0.0;
+        return (0.0, None);
     }
     let v0 = desired_speed(w, i);
+    let mut st = None;
     let mut a = match w.veh.kind[i] {
         Kind::Human => {
             let mut a = human::accel(w, i, v0);
@@ -116,7 +134,11 @@ pub fn accel(w: &World, i: usize) -> f64 {
             }
             a
         }
-        Kind::Auto => accel_ideal(w, i),
+        Kind::Auto => {
+            let out = auto::accel(w, i);
+            st = Some(out.state);
+            out.a
+        }
     };
     if let Some(f) = ag.forced
         && w.time < f.until
@@ -127,7 +149,7 @@ pub fn accel(w: &World, i: usize) -> f64 {
         let hold = if v > f.target { -f.decel } else { ((f.target - v) / 2.0).min(0.5) };
         a = a.min(hold);
     }
-    a
+    (a, st)
 }
 
 /// Plain IDM acceleration on true state (no delay, no noise).

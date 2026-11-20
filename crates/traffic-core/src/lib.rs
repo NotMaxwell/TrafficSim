@@ -5,6 +5,7 @@
 //! keyed streams (see `rng`), so runs are bit-for-bit repeatable.
 
 pub mod auto;
+pub mod bus;
 pub mod demand;
 pub mod human;
 pub mod idm;
@@ -59,6 +60,7 @@ pub struct World {
     pub truck_share: f64,
     pub stats: Stats,
     pub demand: demand::Demand,
+    pub bus: bus::Bus,
     pub(crate) next_id: u64,
 }
 
@@ -69,6 +71,7 @@ impl World {
         let demand = demand::Demand::new(&sc.demand, &road, sc.seed);
         let mut w = World {
             demand,
+            bus: bus::Bus::new(&sc.bus, sc.dt, sc.seed),
             veh: Vehicles::new(road.lanes),
             road,
             params: sc.params(),
@@ -101,6 +104,22 @@ impl World {
             self.veh.lane[i].hash(&mut h);
         }
         h.finish()
+    }
+
+    /// Turn vehicle `slot` into an auto (keeps its position and speed).
+    pub fn make_auto(&mut self, slot: usize) {
+        let ag = &mut self.veh.agent[slot];
+        let mut idm = self.params.auto.idm;
+        idm.v0 = self.road.limit;
+        ag.driver = vehicles::Driver {
+            idm,
+            politeness: self.params.auto.politeness,
+            threshold: self.params.auto.threshold,
+            tau: 0.0,
+            anticipation: 1,
+        };
+        ag.auto = auto::AutoState { v_avg: self.veh.v[slot], v_cmd: self.veh.v[slot], ..Default::default() };
+        self.veh.kind[slot] = Kind::Auto;
     }
 
     /// Called just before a vehicle leaves through off-ramp `ramp`.

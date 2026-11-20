@@ -203,6 +203,8 @@ pub fn make_agent(w: &World, id: u64, origin: u16, exit: u16) -> (Kind, Agent, f
         odo: 0.0,
         s_prev: 0.0,
         hard_braking: false,
+        signal: 0,
+        signal_since: 0.0,
     };
     (kind, agent, len)
 }
@@ -330,11 +332,15 @@ pub fn enter(w: &mut World) -> bool {
         let s = ramp.zone_start;
         let lanes: Vec<u8> = if ramp.all_lanes { (1..=w.road.lanes).filter(|&l| w.road.lane_exists(s, l)).collect() } else { vec![0] };
         let v_max = 0.8 * w.road.limit_at(s);
-        let best = lanes.iter().filter_map(|&lane| entry_speed(w, lane, s, v_max).map(|v| (lane, v))).max_by(|a, b| a.1.total_cmp(&b.1));
+        let exit = choose_exit(&w.road, w.seed, id, s, &w.demand.cfg);
+        let (_, agent, len) = make_agent(w, id, ramp.id, exit);
+        let best = lanes
+            .iter()
+            .filter_map(|&lane| entry_speed(w, lane, s, v_max, len, &agent.driver.idm).map(|v| (lane, v)))
+            .max_by(|a, b| a.1.total_cmp(&b.1));
         if let Some((lane, v)) = best {
             w.demand.ramps[k].queue.pop_front();
             w.demand.ramps[k].entered += 1;
-            let exit = choose_exit(&w.road, w.seed, id, s, &w.demand.cfg);
             add_vehicle(w, id, s, lane, v, ramp.id, exit);
             w.veh.reindex();
             any = true;
@@ -343,33 +349,36 @@ pub fn enter(w: &mut World) -> bool {
     any
 }
 
-/// Speed at which a vehicle can enter `lane` at `s`, or None if there is
-/// no room. The vehicle enters at (about) the leader's speed, and only when
-/// the gap ahead fits that speed with half the desired time gap and the
-/// vehicle behind would not have to brake hard.
-fn entry_speed(w: &World, lane: u8, s: f64, v_max: f64) -> Option<f64> {
-    let p = &w.params.human.idm;
-    let len = w.params.human.length;
+/// Speed at which a vehicle of length `len` can enter `lane` at `s`, or
+/// None if there is no room. It enters at (about) the leader's speed, only
+/// when the gap ahead fits that speed with half its desired time gap, and
+/// only if the vehicle behind keeps a short time gap and would not have to
+/// brake hard even reacting ~1.2 s late.
+fn entry_speed(w: &World, lane: u8, s: f64, v_max: f64, len: f64, idm: &Idm) -> Option<f64> {
     let (lead, fol) = w.veh.around(lane, s, usize::MAX);
     let mut v = v_max;
     if let Some(l) = lead {
         let gap = w.road.dist(s, w.veh.s[l]) - w.veh.len[l];
         if gap < 300.0 {
             v = v.min(w.veh.v[l] + 1.0);
-            if gap < p.s0 + 0.5 * p.t * v + 2.0 {
+            if gap < idm.s0 + 0.5 * idm.t * v + 2.0 {
                 return None;
             }
         }
     }
     if let Some(f) = fol {
         let gap = w.road.dist(w.veh.s[f], s) - len;
-        if gap < p.s0 + 1.0 {
-            return None;
-        }
-        let ag = &w.veh.agent[f];
-        let acc = ag.driver.idm.interaction(w.veh.v[f], gap, w.veh.v[f] - v);
-        if gap < 500.0 && acc < -w.params.mobil.b_safe * 0.5 {
-            return None;
+        let vf = w.veh.v[f];
+        if gap < 500.0 {
+            if gap < 2.0 + 0.5 * vf {
+                return None;
+            }
+            let closing = (vf - v).max(0.0);
+            let ag = &w.veh.agent[f];
+            let acc = ag.driver.idm.interaction(vf, (gap - 1.2 * closing).max(0.1), vf - v);
+            if acc < -w.params.mobil.b_safe * 0.5 {
+                return None;
+            }
         }
     }
     Some(v.max(0.0))

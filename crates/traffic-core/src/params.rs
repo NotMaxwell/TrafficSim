@@ -202,6 +202,9 @@ pub struct MobilParams {
     pub exit_prepare: f64,
     /// Duration of the drawn lateral move, s (visual only).
     pub change_duration: f64,
+    /// How long drivers signal before changing lanes, s.
+    pub signal_human: f64,
+    pub signal_auto: f64,
 }
 
 impl Default for MobilParams {
@@ -213,6 +216,8 @@ impl Default for MobilParams {
             check_interval: 1.0,
             exit_prepare: 2000.0,
             change_duration: 2.0,
+            signal_human: 2.0,
+            signal_auto: 1.0,
         }
     }
 }

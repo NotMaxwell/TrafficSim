@@ -5,7 +5,9 @@
 use egui::{Align2, Color32, FontId, Mesh, Rect, Sense, Shape, Stroke, pos2, vec2};
 use traffic_core::Road;
 use traffic_core::road::{Dir, MILE};
-use traffic_core::snapshot::{FLAG_AUTO, FLAG_BRAKING, FLAG_CACC, FLAG_CRASHED, FLAG_DISTRACTED, WorldSnap};
+use traffic_core::snapshot::{
+    FLAG_AUTO, FLAG_BRAKING, FLAG_CACC, FLAG_CRASHED, FLAG_DISTRACTED, FLAG_SIGNAL_LEFT, FLAG_SIGNAL_RIGHT, WorldSnap,
+};
 
 use crate::theme;
 use crate::view_road::{ColorBy, quad, vehicle_color};
@@ -124,6 +126,13 @@ fn vehicles(
             if d.flags & FLAG_AUTO != 0 && by == ColorBy::Speed {
                 let col = if d.flags & FLAG_CACC != 0 { theme::AUTO } else { theme::AUTO.gamma_multiply(0.5) };
                 quad(mesh, c, vec2(1.0, 0.0), half * 0.5, hw * 0.35, col);
+            }
+            // Blinkers (1 Hz): "left" is toward the next higher lane.
+            let sig = if d.flags & FLAG_SIGNAL_LEFT != 0 { 1.0 } else if d.flags & FLAG_SIGNAL_RIGHT != 0 { -1.0 } else { 0.0 };
+            if sig != 0.0 && snap.time.fract() < 0.5 {
+                let up = (band.lane_y(2, 0.0) - band.lane_y(1, 0.0)).signum() * sig;
+                let corner = c + vec2(fwd * (half - 1.5), up * (hw - 1.0));
+                quad(mesh, corner, vec2(1.0, 0.0), 1.8, 1.8, theme::BLINKER);
             }
             if d.flags & FLAG_DISTRACTED != 0 {
                 quad(mesh, c + vec2(fwd * half * 0.4, 0.0), vec2(1.0, 0.0), 2.0, 2.0, Color32::from_rgb(160, 60, 255));

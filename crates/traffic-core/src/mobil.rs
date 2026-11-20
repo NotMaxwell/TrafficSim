@@ -12,6 +12,11 @@ use crate::step::{desired_speed, lane_end};
 use crate::vehicles::{Kind, NO_RAMP};
 use crate::World;
 
+/// A vehicle behind is noticed in the mirror, whatever the mirror range,
+/// if it would arrive within this many seconds (and is within LOOMING_MAX).
+const LOOMING_TIME: f64 = 8.0;
+const LOOMING_MAX: f64 = 200.0;
+
 /// Reaction time a lane changer allows for the new follower, s.
 const REACTION_ALLOWANCE: f64 = 1.2;
 
@@ -177,7 +182,10 @@ pub fn decide(w: &World, i: usize, need: Need) -> Option<u8> {
         let mut f_new_loss = 0.0;
         if let Some(f) = fol {
             let d_back = w.road.dist(w.veh.s[f], s);
-            if d_back < back_range {
+            // Mirror: nearby vehicles, plus fast-approaching ones (looming).
+            let closing = w.veh.v[f] - w.veh.v[i];
+            let looming = closing > 0.0 && d_back < LOOMING_MAX && d_back / closing < LOOMING_TIME;
+            if d_back < back_range || looming {
                 let gap_b = d_back - w.veh.len[i];
                 if gap_b < 0.5 {
                     continue;
@@ -227,20 +235,52 @@ pub fn lane_changes(w: &mut World) {
     for i in 0..w.veh.len() {
         let ag = &w.veh.agent[i];
         if ag.crashed() || ag.forced.is_some() {
+            w.veh.agent[i].signal = 0;
             continue;
         }
         let need = need_of(w, i);
-        let due = (w.veh.id[i] + w.tick).is_multiple_of(check) || need.urgent;
+        let signalling = ag.signal != 0;
+        let due = (w.veh.id[i] + w.tick).is_multiple_of(check) || need.urgent || signalling;
         let cooldown = if need.urgent { 1.0 } else { 5.0 };
         if !due || w.time - ag.last_change < cooldown {
             continue;
         }
-        let Some(t) = decide(w, i, need) else { continue };
-        let old = w.veh.lane[i];
+        let lane = w.veh.lane[i];
+        let target = decide(w, i, need);
+        // Drivers who must change lanes (merge, lane end, blockage, exit)
+        // keep signalling while they wait for a gap, so others can yield.
+        let Some(t) = target else {
+            let ag = &mut w.veh.agent[i];
+            let waiting = need.dir != 0 && need.strength >= 1.0;
+            if waiting && ag.signal != need.dir {
+                ag.signal_since = w.time;
+            }
+            ag.signal = if waiting { need.dir } else { 0 };
+            continue;
+        };
+        let dir = t as i8 - lane as i8;
+        let sig_time = match w.veh.kind[i] {
+            Kind::Human => w.params.mobil.signal_human,
+            Kind::Auto => w.params.mobil.signal_auto,
+        };
+        let near_end = lane_end(w, i, lane, w.veh.s[i]).is_some_and(|d| d < 40.0);
+        let ag = &mut w.veh.agent[i];
+        if ag.signal != dir {
+            ag.signal = dir;
+            ag.signal_since = w.time;
+            if !near_end {
+                continue;
+            }
+        } else if w.time - ag.signal_since < sig_time && !near_end {
+            continue;
+        }
+        // Execute (the decision was just re-validated as safe).
+        let old = lane;
         w.veh.move_lane(i, t);
         w.veh.lat[i] = t as f32 - old as f32;
         let ag = &mut w.veh.agent[i];
         ag.last_change = w.time;
+        ag.signal = 0;
         ag.human.filled = 0;
         w.stats.lane_changes += 1;
         // Audit with true state (humans may have missed someone in the mirror).
@@ -254,3 +294,36 @@ pub fn lane_changes(w: &mut World) {
         }
     }
 }
+
+/// Courtesy: a vehicle signalling into `slot`'s lane just ahead of it, if
+/// yielding to it needs no more than comfortable braking. Returns
+/// (gap, speed) of that vehicle.
+pub fn yield_target(w: &World, slot: usize) -> Option<(f64, f64)> {
+    let lane = w.veh.lane[slot];
+    let s = w.veh.s[slot];
+    let mut best: Option<(f64, f64)> = None;
+    for adj in [lane as i16 - 1, lane as i16 + 1] {
+        if !(0..=w.road.lanes as i16).contains(&adj) {
+            continue;
+        }
+        let (lead, _) = w.veh.around(adj as u8, s, slot);
+        let Some(n) = lead else { continue };
+        if w.veh.lane[n] as i16 + w.veh.agent[n].signal as i16 != lane as i16 {
+            continue;
+        }
+        let gap = w.road.dist(s, w.veh.s[n]) - w.veh.len[n];
+        if !(0.0..=YIELD_RANGE).contains(&gap) {
+            continue;
+        }
+        if idm_acc(w, slot, gap, w.veh.v[n]) < -w.veh.agent[slot].driver.idm.b {
+            continue;
+        }
+        if best.is_none_or(|(g, _)| gap < g) {
+            best = Some((gap, w.veh.v[n]));
+        }
+    }
+    best
+}
+
+/// How far ahead a signalling vehicle is noticed for yielding, m.
+const YIELD_RANGE: f64 = 50.0;
