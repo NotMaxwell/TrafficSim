@@ -1,0 +1,39 @@
+name = "Sugiyama ring"
+description = "22 cars on a 230 m single-lane ring (Sugiyama et al. 2008). A jam forms with no bottleneck and travels backward."
+seed = 2008
+dt = 0.1
+duration_s = 600.0
+
+[road]
+kind = "ring"
+length_m = 230.0
+lanes = 1
+speed_limit_kmh = 50.0
+
+[population]
+count = 22
+initial_speed = 0.0
+
+[mix]
+left = 0.0
+right = 0.0
+
+# City-driving IDM, slightly sluggish: string-unstable at this density.
+[human]
+length = 4.5
+v0_spread = 0.0
+t_min = 0.8
+t_max = 0.8
+accel_noise = 0.2
+delay = false
+estimation = false
+distraction = false
+anticipation_max = 1
+
+[human.idm]
+v0 = 13.9
+t = 0.8
+s0 = 1.0
+a = 0.8
+b = 1.5
+delta = 4.0
