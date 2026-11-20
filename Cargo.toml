@@ -1,0 +1,39 @@
+[workspace]
+resolver = "3"
+members = ["crates/traffic-core", "crates/traffic-app", "crates/traffic-batch"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+
+# Exact pins: egui/eframe/wgpu break APIs often. See docs/deps.md.
+[workspace.dependencies]
+traffic-core = { path = "crates/traffic-core" }
+eframe = { version = "=0.36.2", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11", "accesskit"] }
+egui = "=0.36.2"
+egui_plot = "=0.37.0"
+rayon = "=1.12.0"
+rand = { version = "=0.9.5", default-features = false, features = ["std"] }
+rand_chacha = "=0.9.0"
+serde = { version = "=1.0.229", features = ["derive"] }
+toml = "=1.1.8"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+debug = 1
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.test]
+opt-level = 3

@@ -1,0 +1,20 @@
+[package]
+name = "traffic-app"
+description = "Desktop GUI for the highway traffic simulator."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "traffic-sim"
+path = "src/main.rs"
+
+[dependencies]
+traffic-core.workspace = true
+eframe.workspace = true
+egui.workspace = true
+egui_plot.workspace = true
+
+[lints]
+workspace = true
