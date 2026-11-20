@@ -79,7 +79,7 @@ pub fn detail(ui: &mut egui::Ui, road: &Road, snap: &WorldSnap, cam: &mut Camera
         FontId::proportional(12.0),
         text,
     );
-    let r = (rect.height() * 0.13).clamp(22.0, 46.0);
+    let r = (rect.height().min(rect.width()) * 0.09).clamp(18.0, 40.0);
     let cam_s = road.from_corridor(Dir::East, cam.mile);
     minimap(&painter, pos2(rect.right() - r - 14.0, rect.top() + r + 14.0), r, road, snap, cam_s);
     resp.on_hover_text("Scroll to zoom · drag to pan · click a vehicle to follow it");

@@ -8,12 +8,13 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use traffic_core::snapshot::WorldSnap;
-use traffic_core::{Road, Scenario, World};
+use traffic_core::{Road, Scenario, Side, Sim};
 
 pub enum Cmd {
     Play(bool),
     Speed(f64),
     Load(Box<Scenario>),
+    SetShare(Side, f64),
     StepOnce,
     Quit,
 }
@@ -22,8 +23,9 @@ pub enum Cmd {
 #[derive(Default)]
 pub struct Frame {
     pub worlds: Vec<WorldSnap>,
+    /// Vehicles waiting in ramp queues, per world.
+    pub queued: [usize; 2],
     pub road: Option<Arc<Road>>,
-    pub scenario: String,
     pub playing: bool,
     /// Measured sim-seconds per real second.
     pub actual_speed: f64,
@@ -68,9 +70,8 @@ impl Drop for Runner {
 }
 
 struct SimThread {
-    worlds: Vec<World>,
+    sim: Sim,
     road: Arc<Road>,
-    scenario: String,
     rx: Receiver<Cmd>,
     out: Arc<Mutex<Arc<Frame>>>,
     repaint: egui::Context,
@@ -84,9 +85,8 @@ struct SimThread {
 impl SimThread {
     fn new(sc: Scenario, rx: Receiver<Cmd>, out: Arc<Mutex<Arc<Frame>>>, repaint: egui::Context) -> Self {
         let mut t = SimThread {
-            worlds: Vec::new(),
+            sim: Sim::new(&sc),
             road: Arc::new(sc.road.build()),
-            scenario: String::new(),
             rx,
             out,
             repaint,
@@ -101,20 +101,17 @@ impl SimThread {
     }
 
     fn load(&mut self, sc: Scenario) {
-        self.worlds = vec![World::new(&sc, sc.mix.left)];
-        self.road = Arc::new(self.worlds[0].road.clone());
-        self.scenario = sc.name.clone();
+        self.sim = Sim::new(&sc);
+        self.road = Arc::new(self.sim.left.road.clone());
         self.measured = (Instant::now(), 0.0);
     }
 
     fn sim_time(&self) -> f64 {
-        self.worlds.first().map_or(0.0, |w| w.time)
+        self.sim.time()
     }
 
     fn step_all(&mut self) {
-        for w in &mut self.worlds {
-            traffic_core::step(w);
-        }
+        self.sim.step();
     }
 
     fn run(mut self) {
@@ -131,6 +128,7 @@ impl SimThread {
                         owed = 0.0;
                         last_publish -= Duration::from_secs(1);
                     }
+                    Cmd::SetShare(side, v) => self.sim.set_auto_share(side, v),
                     Cmd::StepOnce => self.step_all(),
                     Cmd::Quit => return,
                 }
@@ -138,7 +136,7 @@ impl SimThread {
             let now = Instant::now();
             let real = now.duration_since(last).as_secs_f64();
             last = now;
-            let dt = self.worlds.first().map_or(0.1, |w| w.dt);
+            let dt = self.sim.left.dt;
             if self.playing {
                 // Never owe more than a quarter second of wall time: when
                 // the sim cannot keep up it slows down instead of spiralling.
@@ -176,9 +174,8 @@ impl SimThread {
     }
 
     fn publish(&mut self) {
-        let worlds = self
-            .worlds
-            .iter()
+        let worlds = [&self.sim.left, &self.sim.right]
+            .into_iter()
             .map(|w| {
                 let mut s = WorldSnap::default();
                 w.snapshot_into(&mut s);
@@ -187,8 +184,8 @@ impl SimThread {
             .collect();
         let frame = Frame {
             worlds,
+            queued: [self.sim.left.queued(), self.sim.right.queued()],
             road: Some(self.road.clone()),
-            scenario: self.scenario.clone(),
             playing: self.playing,
             actual_speed: self.actual_speed,
             tick_ms: self.tick_ms,

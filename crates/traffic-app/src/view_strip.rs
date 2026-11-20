@@ -79,7 +79,7 @@ pub fn draw_road(painter: &egui::Painter, road: &Road, band: &Band, m0: f64, m1:
         let y = band.lane_y(0, 0.0);
         let rr = Rect::from_x_y_ranges(band.x(lo, m0, m1)..=band.x(hi, m0, m1).max(band.x(lo, m0, m1) + 2.0), y - lp * 0.5..=y + lp * 0.5);
         painter.rect_filled(rr, 0.0, theme::ASPHALT);
-        if detail {
+        if detail && rr.width() > 90.0 && band.rect.contains_rect(rr.shrink2(egui::vec2(0.0, 1.0))) {
             let col = if r.kind == RampKind::On { theme::AUTO.gamma_multiply(0.5) } else { theme::LEFT.gamma_multiply(0.5) };
             painter.text(rr.center(), Align2::CENTER_CENTER, &r.name, FontId::proportional(11.0), col);
         }

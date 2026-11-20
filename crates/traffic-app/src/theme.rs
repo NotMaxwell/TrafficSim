@@ -13,7 +13,6 @@ pub const AUTO: Color32 = Color32::from_rgb(0, 184, 255);
 
 /// Series colours for the two worlds (left pane, right pane).
 pub const LEFT: Color32 = Color32::from_rgb(255, 159, 67);
-#[allow(dead_code)] // used from milestone 6 (split view)
 pub const RIGHT: Color32 = Color32::from_rgb(72, 219, 251);
 
 pub fn bg_road(ui: &egui::Ui) -> Color32 {

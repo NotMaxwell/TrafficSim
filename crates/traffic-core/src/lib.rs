@@ -13,6 +13,7 @@ pub mod params;
 pub mod rng;
 pub mod road;
 pub mod scenario;
+pub mod sim;
 pub mod snapshot;
 pub mod step;
 pub mod vehicles;
@@ -22,6 +23,7 @@ use std::hash::{Hash, Hasher};
 pub use params::Params;
 pub use road::Road;
 pub use scenario::Scenario;
+pub use sim::{Side, Sim};
 pub use step::step;
 pub use vehicles::{Kind, Vehicles};
 
