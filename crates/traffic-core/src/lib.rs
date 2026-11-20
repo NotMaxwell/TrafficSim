@@ -12,6 +12,7 @@ pub mod params;
 pub mod rng;
 pub mod road;
 pub mod scenario;
+pub mod snapshot;
 pub mod step;
 pub mod vehicles;
 
