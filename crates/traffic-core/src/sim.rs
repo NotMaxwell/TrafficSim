@@ -64,6 +64,15 @@ impl Sim {
         }
     }
 
+    /// Inject an event now into both worlds (same time, same place).
+    pub fn inject(&mut self, kind: crate::events::EventKind) {
+        let t = self.time();
+        let spec = crate::events::EventSpec { t, kind };
+        self.scenario.events.push(spec.clone());
+        self.left.events.add(spec.clone());
+        self.right.events.add(spec);
+    }
+
     /// Change the auto share of one side. Only new arrivals are affected,
     /// so the change spreads through the corridor over time.
     pub fn set_auto_share(&mut self, side: Side, share: f64) {

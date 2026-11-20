@@ -102,6 +102,59 @@ pub fn draw_road(painter: &egui::Painter, road: &Road, band: &Band, m0: f64, m1:
     }
 }
 
+/// Mile range of a ring span [s0, s1) within one direction, if any.
+fn span_miles(road: &Road, dir: Dir, s0: f64, s1: f64) -> Option<(f64, f64)> {
+    let a = road.to_corridor(s0).filter(|x| x.0 == dir).map(|x| x.1);
+    let b = road.to_corridor((s1 - 0.5).max(0.0)).filter(|x| x.0 == dir).map(|x| x.1);
+    match (a, b) {
+        (Some(a), Some(b)) => Some((a.min(b), a.max(b))),
+        (Some(a), None) | (None, Some(a)) => Some((a, a)),
+        _ => None,
+    }
+}
+
+/// Closures (orange; crashes magenta), weather (blue) and comms outages
+/// (purple) on one direction band.
+pub fn draw_zones(painter: &egui::Painter, road: &Road, band: &Band, m0: f64, m1: f64, snap: &WorldSnap) {
+    let m = &snap.metrics;
+    let lp = band.lane_px();
+    let xr = |lo: f64, hi: f64| {
+        let (a, b) = (band.x(lo.max(m0), m0, m1), band.x(hi.min(m1), m0, m1));
+        a.min(b)..=(a.max(b)).max(a.min(b) + 3.0)
+    };
+    for (s0, s1) in &m.weather {
+        if let Some((lo, hi)) = span_miles(road, band.dir, *s0, *s1)
+            && hi >= m0
+            && lo <= m1
+        {
+            painter.rect_filled(Rect::from_x_y_ranges(xr(lo, hi), band.rect.y_range()), 0.0, Color32::from_rgba_unmultiplied(80, 140, 255, 40));
+        }
+    }
+    for (s0, s1) in &m.outages {
+        let full = road.dist(*s0, *s1) > road.length * 0.99 || (*s0 == 0.0 && *s1 >= road.length);
+        let span = if full { Some((m0, m1)) } else { span_miles(road, band.dir, *s0, *s1) };
+        if let Some((lo, hi)) = span {
+            let y = match band.dir {
+                Dir::East => band.rect.top() + 1.0,
+                Dir::West => band.rect.bottom() - 1.0,
+            };
+            painter.line_segment([pos2(*xr(lo, hi).start(), y), pos2(*xr(lo, hi).end(), y)], Stroke::new(2.5, Color32::from_rgb(170, 90, 255)));
+        }
+    }
+    for (s0, s1, lanes, crash) in &m.closures {
+        if let Some((lo, hi)) = span_miles(road, band.dir, *s0, *s1)
+            && hi >= m0
+            && lo <= m1
+        {
+            let col = if *crash { theme::CRASH } else { theme::CLOSURE };
+            for &l in lanes {
+                let y = band.lane_y(l, 0.0);
+                painter.rect_filled(Rect::from_x_y_ranges(xr(lo, hi), y - lp * 0.45..=y + lp * 0.45), 1.0, col.gamma_multiply(0.75));
+            }
+        }
+    }
+}
+
 /// Draw vehicles of one direction into `mesh`.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_vehicles(mesh: &mut Mesh, road: &Road, snap: &WorldSnap, band: &Band, m0: f64, m1: f64, by: ColorBy, min_len_px: f32) {
@@ -137,6 +190,9 @@ pub fn strip(ui: &mut egui::Ui, road: &Road, snap: &WorldSnap, cam: &Camera, by:
         draw_vehicles(&mut mesh, road, snap, b, 0.0, m1, by, 1.0);
     }
     painter.add(Shape::mesh(mesh));
+    for b in [&eb, &wb] {
+        draw_zones(&painter, road, b, 0.0, m1, snap);
+    }
     // Crash markers.
     for d in snap.vehicles.iter().filter(|d| d.flags & FLAG_CRASHED != 0) {
         if let Some((dir, mile)) = road.to_corridor(d.s as f64) {

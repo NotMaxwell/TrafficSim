@@ -75,8 +75,27 @@ pub fn need_of(w: &World, i: usize) -> Need {
     if let Some(d) = lane_end(w, i, lane, s)
         && d < 600.0
     {
-        let beyond = s + d + 10.0;
-        let dir = if lane == 0 || !w.road.lane_exists(w.road.wrap(beyond), lane - 1) { 1 } else { -1 };
+        // Head for the nearest lane that is open past the obstruction
+        // (geometrically present and not closed), preferring the left on ties.
+        let beyond = w.road.wrap(s + d + 10.0);
+        let open = |l: i16| {
+            (1..=w.road.lanes as i16).contains(&l)
+                && w.road.lane_exists(beyond, l as u8)
+                && !w.events.in_closure(&w.road, beyond, l as u8)
+                && !w.events.in_closure(&w.road, w.road.wrap(s + d + 1.0), l as u8)
+        };
+        let lane_i = lane as i16;
+        let dir = (1..=w.road.lanes as i16)
+            .find_map(|k| {
+                if open(lane_i + k) {
+                    Some(1)
+                } else if open(lane_i - k) {
+                    Some(-1)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(if lane == 0 { 1 } else { -1 });
         let strength = if lane == 0 { 3.0 } else { 0.5 + 3.0 * (1.0 - d / 600.0) };
         return Need { dir, strength, hard: true, urgent: lane == 0 || d < 300.0 };
     }
@@ -117,8 +136,8 @@ fn lane_allowed(w: &World, i: usize, target: u8) -> bool {
         // Only exiting vehicles, inside their own diverge zone.
         return w.road.ramp_zone_at(s).is_some_and(|r| r.id == w.veh.agent[i].exit);
     }
-    // Don't move into a lane that is about to end.
-    lane_end(w, i, target, s).is_none_or(|d| d > 80.0)
+    // Not into a closed lane, nor one that is about to end.
+    !w.events.in_closure(&w.road, s, target) && lane_end(w, i, target, s).is_none_or(|d| d > 80.0)
 }
 
 /// Best lane change for `i`, if any: (target lane, incentive).

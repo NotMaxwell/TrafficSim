@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::bus::BusParams;
 use crate::demand::DemandConfig;
+use crate::events::EventSpec;
 use crate::params::{AutoParams, HumanParams, MobilParams, Params, TruckParams};
 use crate::road::{CorridorGeometry, Road};
 
@@ -100,6 +101,8 @@ pub struct Scenario {
     pub truck: TruckParams,
     pub mobil: MobilParams,
     pub bus: BusParams,
+    /// Scheduled events (hit both panes at the same time and place).
+    pub events: Vec<EventSpec>,
 }
 
 impl Default for Scenario {
@@ -119,6 +122,7 @@ impl Default for Scenario {
             truck: TruckParams::default(),
             mobil: MobilParams::default(),
             bus: BusParams::default(),
+            events: Vec::new(),
         }
     }
 }

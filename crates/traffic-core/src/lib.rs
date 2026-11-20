@@ -7,9 +7,11 @@
 pub mod auto;
 pub mod bus;
 pub mod demand;
+pub mod events;
 pub mod human;
 pub mod idm;
 pub mod merge;
+pub mod metrics;
 pub mod mobil;
 pub mod params;
 pub mod rng;
@@ -19,6 +21,7 @@ pub mod sim;
 pub mod snapshot;
 pub mod step;
 pub mod vehicles;
+pub mod waves;
 
 use std::hash::{Hash, Hasher};
 
@@ -64,6 +67,8 @@ pub struct World {
     pub stats: Stats,
     pub demand: demand::Demand,
     pub bus: bus::Bus,
+    pub events: events::Events,
+    pub metrics: metrics::Metrics,
     pub(crate) next_id: u64,
 }
 
@@ -80,6 +85,8 @@ impl World {
         let mut w = World {
             demand,
             bus: bus::Bus::new(&sc.bus, sc.dt, sc.seed),
+            events: events::Events::new(sc.events.clone()),
+            metrics: metrics::Metrics::placeholder(),
             veh: Vehicles::new(road.lanes),
             road,
             params: sc.params(),
@@ -93,6 +100,7 @@ impl World {
             stats: Stats::default(),
             next_id: 0,
         };
+        w.metrics = metrics::Metrics::new(&w);
         demand::populate(&mut w, &sc.population);
         w.veh.reindex();
         w
@@ -132,7 +140,9 @@ impl World {
     }
 
     /// Called just before a vehicle leaves through off-ramp `ramp`.
-    pub(crate) fn on_exit(&mut self, _slot: usize, _ramp: u16) {}
+    pub(crate) fn on_exit(&mut self, slot: usize, ramp: u16) {
+        metrics::on_exit(self, slot, ramp);
+    }
 
     /// Vehicles waiting in ramp queues.
     pub fn queued(&self) -> usize {

@@ -8,15 +8,49 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use traffic_core::snapshot::WorldSnap;
-use traffic_core::{Road, Scenario, Side, Sim};
+use traffic_core::events::EventKind;
+use traffic_core::road::Dir;
+use traffic_core::{Road, Scenario, Side, Sim, World, metrics, waves};
 
 pub enum Cmd {
     Play(bool),
     Speed(f64),
     Load(Box<Scenario>),
     SetShare(Side, f64),
+    Event(EventKind),
+    /// Write CSVs of both worlds into this directory.
+    Export(std::path::PathBuf),
     StepOnce,
     Quit,
+}
+
+/// Wave analysis of one world, refreshed about once a second.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Analysis {
+    /// Shockwave speed, km/h (negative = upstream), per direction.
+    pub shock_eb: Option<f64>,
+    pub shock_wb: Option<f64>,
+    /// Amplification of the latest hard-brake disturbance.
+    pub amplification: Option<f64>,
+}
+
+impl Analysis {
+    fn of(w: &World) -> Analysis {
+        let m = &w.metrics;
+        let (eb, wb) = if w.road.is_corridor() { (Some(Dir::East), Some(Dir::West)) } else { (None, None) };
+        let amplification = w
+            .events
+            .log
+            .iter()
+            .rev()
+            .find(|e| e.1 == "hard brake")
+            .and_then(|e| waves::amplification(m, &w.road, e.2, e.0, 600.0_f64.min(w.time - e.0 - 10.0)));
+        Analysis {
+            shock_eb: waves::shockwave_speed(m, &w.road, eb, 900.0),
+            shock_wb: if w.road.is_corridor() { waves::shockwave_speed(m, &w.road, wb, 900.0) } else { None },
+            amplification,
+        }
+    }
 }
 
 /// Everything the UI draws, published as one immutable unit.
@@ -31,6 +65,9 @@ pub struct Frame {
     pub actual_speed: f64,
     /// Mean wall time of one tick (all worlds), ms.
     pub tick_ms: f64,
+    pub analysis: [Analysis; 2],
+    /// Result of the last CSV export.
+    pub export_msg: Option<String>,
 }
 
 pub struct Runner {
@@ -80,6 +117,9 @@ struct SimThread {
     measured: (Instant, f64),
     actual_speed: f64,
     tick_ms: f64,
+    analysis: [Analysis; 2],
+    analysed: Instant,
+    export_msg: Option<String>,
 }
 
 impl SimThread {
@@ -95,6 +135,9 @@ impl SimThread {
             measured: (Instant::now(), 0.0),
             actual_speed: 0.0,
             tick_ms: 0.0,
+            analysis: Default::default(),
+            analysed: Instant::now(),
+            export_msg: None,
         };
         t.load(sc);
         t
@@ -102,6 +145,8 @@ impl SimThread {
 
     fn load(&mut self, sc: Scenario) {
         self.sim = Sim::new(&sc);
+        self.analysis = Default::default();
+        self.export_msg = None;
         self.road = Arc::new(self.sim.left.road.clone());
         self.measured = (Instant::now(), 0.0);
     }
@@ -129,6 +174,8 @@ impl SimThread {
                         last_publish -= Duration::from_secs(1);
                     }
                     Cmd::SetShare(side, v) => self.sim.set_auto_share(side, v),
+                    Cmd::Event(e) => self.sim.inject(e),
+                    Cmd::Export(dir) => self.export_msg = Some(self.export(&dir)),
                     Cmd::StepOnce => self.step_all(),
                     Cmd::Quit => return,
                 }
@@ -173,7 +220,27 @@ impl SimThread {
         }
     }
 
+    /// Write summary rows, detector samples and the scenario (with every
+    /// injected event, so the run can be replayed) for both worlds.
+    fn export(&self, dir: &std::path::Path) -> String {
+        let run = dir.join(format!("run-t{:05.0}", self.sim.time()));
+        let mut files = vec![(run.join("scenario.toml"), self.sim.scenario.to_toml().unwrap_or_default())];
+        for (name, w) in [("left", &self.sim.left), ("right", &self.sim.right)] {
+            files.push((run.join(format!("{name}_summary.csv")), metrics::rows_to_csv(&w.metrics.rows)));
+            files.push((run.join(format!("{name}_detectors.csv")), metrics::detector_samples_to_csv(&w.metrics)));
+        }
+        let res = std::fs::create_dir_all(&run).and_then(|_| files.iter().try_for_each(|(p, c)| std::fs::write(p, c)));
+        match res {
+            Ok(()) => format!("Saved to {}", run.display()),
+            Err(e) => format!("Export failed: {e}"),
+        }
+    }
+
     fn publish(&mut self) {
+        if self.analysed.elapsed() >= Duration::from_secs(1) {
+            self.analysis = [Analysis::of(&self.sim.left), Analysis::of(&self.sim.right)];
+            self.analysed = Instant::now();
+        }
         let worlds = [&self.sim.left, &self.sim.right]
             .into_iter()
             .map(|w| {
@@ -189,6 +256,8 @@ impl SimThread {
             playing: self.playing,
             actual_speed: self.actual_speed,
             tick_ms: self.tick_ms,
+            analysis: self.analysis,
+            export_msg: self.export_msg.clone(),
         };
         if let Ok(mut f) = self.out.lock() {
             *f = Arc::new(frame);

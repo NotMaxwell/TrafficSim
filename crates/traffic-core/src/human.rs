@@ -183,7 +183,11 @@ pub fn perceive(w: &mut World) {
 /// speeds, s ≈ s(t−τ) − τ·Δv(t−τ). They still react to changes only τ late.
 pub fn accel(w: &World, i: usize, v0: f64) -> f64 {
     let ag = &w.veh.agent[i];
-    let d = &ag.driver;
+    let mut drv = ag.driver;
+    if !w.events.weather.is_empty() {
+        drv.idm.t *= w.events.weather_at(&w.road, w.veh.s[i]).1;
+    }
+    let d = &drv;
     let mut p = if d.tau > 0.0 { ag.human.delayed(d.tau / w.dt) } else { ag.human.latest() };
     let v = if d.tau > 0.0 && w.params.human.temporal_anticipation {
         for j in 0..p.n as usize {

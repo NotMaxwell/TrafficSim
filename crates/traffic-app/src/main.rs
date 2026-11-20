@@ -2,10 +2,12 @@
 
 mod capture;
 mod pane;
+mod panel_events;
 mod runner;
 mod scenarios;
 mod theme;
 mod view_detail;
+mod view_plots;
 mod view_road;
 mod view_strip;
 
@@ -34,6 +36,8 @@ struct App {
     fps: f32,
     capture: Option<capture::Capture>,
     camera: view_strip::Camera,
+    events: panel_events::EventForm,
+    plots: view_plots::Plots,
 }
 
 impl App {
@@ -63,6 +67,8 @@ impl App {
             fps: 0.0,
             capture: capture::Capture::from_args(&args),
             camera,
+            events: Default::default(),
+            plots: Default::default(),
         }
     }
 
@@ -114,7 +120,11 @@ impl App {
         });
     }
 
-    fn controls(&mut self, ui: &mut egui::Ui) {
+    fn controls(&mut self, ui: &mut egui::Ui, frame: &runner::Frame) {
+        egui::ScrollArea::vertical().show(ui, |ui| self.controls_inner(ui, frame));
+    }
+
+    fn controls_inner(&mut self, ui: &mut egui::Ui, frame: &runner::Frame) {
         ui.heading("Controls");
         ui.add_space(4.0);
         ui.label(egui::RichText::new("Auto share (new arrivals)").strong());
@@ -134,6 +144,40 @@ impl App {
             ui.selectable_value(&mut self.color_by, ColorBy::Kind, "Type");
         });
         legend(ui, self.color_by);
+        if let Some(road) = &frame.road {
+            ui.add_space(10.0);
+            ui.separator();
+            ui.label(egui::RichText::new("Events (both panes)").strong());
+            if let Some(e) = self.events.ui(ui, road, self.camera.mile) {
+                self.runner.send(Cmd::Event(e));
+            }
+            if let Some(w) = frame.worlds.first() {
+                let recent: Vec<String> = w
+                    .metrics
+                    .events
+                    .iter()
+                    .rev()
+                    .take(5)
+                    .map(|(t, label, s)| match road.to_corridor(*s) {
+                        Some((d, m)) => format!("{} {label} · {} mi {m:.1}", format_time(*t), if d == traffic_core::road::Dir::East { "EB" } else { "WB" }),
+                        None => format!("{} {label}", format_time(*t)),
+                    })
+                    .collect();
+                for r in recent {
+                    ui.label(egui::RichText::new(r).small().weak());
+                }
+            }
+        }
+        ui.add_space(10.0);
+        ui.separator();
+        ui.label(egui::RichText::new("Export").strong());
+        if ui.button("💾 Save CSV + scenario").on_hover_text("Summary rows and detector windows for both panes, plus the scenario with every injected event").clicked() {
+            let dir = std::env::current_dir().unwrap_or_default().join("exports");
+            self.runner.send(Cmd::Export(dir));
+        }
+        if let Some(msg) = &frame.export_msg {
+            ui.label(egui::RichText::new(msg).small());
+        }
     }
 }
 
@@ -175,7 +219,13 @@ impl eframe::App for App {
         }
         let frame = self.runner.frame();
         egui::Panel::top("top").show(ui, |ui| self.top_bar(ui, &frame));
-        egui::Panel::left("controls").resizable(true).default_size(230.0).show(ui, |ui| self.controls(ui));
+        egui::Panel::left("controls").resizable(true).default_size(250.0).show(ui, |ui| self.controls(ui, &frame));
+        if let Some(road) = &frame.road {
+            let h = ui.available_height();
+            egui::Panel::bottom("plots").resizable(true).default_size((h * 0.36).max(220.0)).min_size(140.0).show(ui, |ui| {
+                self.plots.ui(ui, road, &frame.worlds, &frame.analysis);
+            });
+        }
         egui::CentralPanel::default().show(ui, |ui| {
             let (Some(road), [left, right]) = (&frame.road, frame.worlds.as_slice()) else { return };
             let queued = [frame.queued[0], frame.queued[1]];

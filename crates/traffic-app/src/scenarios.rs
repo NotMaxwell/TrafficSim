@@ -2,6 +2,7 @@
 
 pub const BUILTIN: &[(&str, &str)] = &[
     ("City A ↔ City B corridor", include_str!("../../../scenarios/city_a_to_b.toml")),
+    ("Rush hour with incidents", include_str!("../../../scenarios/rush_hour_incidents.toml")),
     ("Sugiyama ring (phantom jam)", include_str!("../../../scenarios/sugiyama_ring.toml")),
     ("Single auto on a ring (Stern)", include_str!("../../../scenarios/single_av_ring.toml")),
 ];

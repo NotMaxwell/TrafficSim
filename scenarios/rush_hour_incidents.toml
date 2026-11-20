@@ -1,0 +1,69 @@
+name = "Rush hour with incidents"
+description = "The City A to City B corridor at morning rush with scripted incidents: a phantom-jam trigger, a two-lane crash, rain westbound and a demand surge. Left: all human. Right: all auto."
+seed = 7
+dt = 0.1
+duration_s = 7200.0
+
+[road]
+kind = "corridor"
+corridor_mi = 20.0
+lanes = 3
+loop_lanes = 2
+loop_m = 500.0
+ramp_zone_m = 300.0
+speed_limit_mph = 70.0
+loop_limit_mph = 35.0
+interchanges_mi = [7.0, 13.0]
+city_terminal = true
+
+[population]
+initial_density = 12.0
+truck_share = 0.08
+
+[demand]
+city_a_vph = 3600.0
+city_b_vph = 2000.0
+interchange_vph = 450.0
+through_share = 0.1
+interchange_exit_share = 0.1
+start_hour = 6.5
+# (hour, multiplier): morning peak out of City A, evening peak out of City B.
+profile_a = [[0.0, 0.2], [6.0, 0.7], [7.5, 1.25], [9.0, 0.8], [16.0, 0.9], [19.0, 0.6]]
+profile_b = [[0.0, 0.2], [6.0, 0.5], [8.0, 0.8], [16.0, 1.0], [17.5, 1.6], [19.0, 0.7]]
+multiplier = 1.0
+
+[mix]
+left = 0.0
+right = 1.0
+
+# Scripted incidents (hit both panes at the same time and place).
+[[events]]
+t = 300.0
+kind = "hard_brake"
+at = { dir = "East", mile = 12.0 }
+target_kmh = 25.0
+duration_s = 6.0
+decel = 4.0
+
+[[events]]
+t = 900.0
+kind = "crash"
+at = { dir = "East", mile = 9.0 }
+lanes = [1, 2]
+clear_s = 900.0
+
+[[events]]
+t = 1500.0
+kind = "weather"
+at = { dir = "West", mile = 16.0 }
+to_mile = 6.0
+speed_factor = 0.7
+gap_factor = 1.4
+duration_s = 1800.0
+
+[[events]]
+t = 2400.0
+kind = "demand_surge"
+ramp = "Mile 7 on (EB)"
+extra_vph = 1200.0
+duration_s = 900.0

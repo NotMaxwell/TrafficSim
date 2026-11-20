@@ -79,6 +79,7 @@ pub fn accel(w: &World, i: usize) -> AutoOut {
     let v0 = desired_speed(w, i);
     let idm = ag.driver.idm;
     let dt = w.dt;
+    let gap_factor = if w.events.weather.is_empty() { 1.0 } else { w.events.weather_at(&w.road, s).1 };
     st.v_avg += dt / 30.0 * (v - st.v_avg);
 
     let mut lead = lead_of(w, i);
@@ -107,7 +108,7 @@ pub fn accel(w: &World, i: usize) -> AutoOut {
     // 1./2. Car following.
     let leader_entry = lead.slot.filter(|&l| w.veh.kind[l] == Kind::Auto).and_then(|l| view.and_then(|snap| snap.get(w.veh.id[l])));
     let mut a_cmd = if let (Some(e), true) = (leader_entry, lead.gap < FREE_GAP) {
-        let h = p.t_cacc + if st.slowdown_ahead { p.buffer_gap } else { 0.0 };
+        let h = p.t_cacc * gap_factor + if st.slowdown_ahead { p.buffer_gap } else { 0.0 };
         if st.mode != AutoMode::Cacc {
             st.u = a_prev;
         }
@@ -119,7 +120,7 @@ pub fn accel(w: &World, i: usize) -> AutoOut {
         st.u
     } else {
         st.mode = AutoMode::Acc;
-        let acc_idm = crate::idm::Idm { t: p.t_acc, ..idm };
+        let acc_idm = crate::idm::Idm { t: p.t_acc * gap_factor, ..idm };
         let mut a = acc_idm.accel(v, v0, lead.gap, v - lead.v);
         // 4. Dampener behind a human leader.
         if p.dampener && lead.slot.is_some_and(|l| w.veh.kind[l] == Kind::Human) && lead.gap < FREE_GAP {

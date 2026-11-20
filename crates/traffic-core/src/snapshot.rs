@@ -1,6 +1,9 @@
 //! Render snapshot: the minimal per-vehicle data the UI draws, copied out
 //! of a world once per frame (not once per tick).
 
+use std::sync::Arc;
+
+use crate::metrics::Row;
 use crate::vehicles::Kind;
 use crate::{Stats, World};
 
@@ -25,6 +28,28 @@ pub struct VehDraw {
     pub id: u32,
 }
 
+/// Metrics the plots need, copied once per frame (the grid columns are
+/// shared, so copying them is cheap).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MetricsSnap {
+    pub rows: Vec<Row>,
+    /// Fundamental diagram points (density veh/km/lane, flow veh/h/lane)
+    /// from the last 30 minutes of detector windows.
+    pub fd: Vec<[f32; 2]>,
+    pub grid: Vec<Arc<Vec<f32>>>,
+    pub grid_t0: f64,
+    pub grid_version: u64,
+    pub crashes: Vec<(f64, f64)>,
+    /// Started events: (time, label, s).
+    pub events: Vec<(f64, String, f64)>,
+    /// Active closures: (s0, s1, lanes, is_crash).
+    pub closures: Vec<(f64, f64, Vec<u8>, bool)>,
+    /// Active weather zones and comms outages: (s0, s1).
+    pub weather: Vec<(f64, f64)>,
+    pub outages: Vec<(f64, f64)>,
+    pub trips: u64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorldSnap {
     pub time: f64,
@@ -33,6 +58,7 @@ pub struct WorldSnap {
     pub stats: Stats,
     pub mean_speed: f64,
     pub auto_share: f64,
+    pub metrics: MetricsSnap,
 }
 
 impl World {
@@ -43,6 +69,28 @@ impl World {
         out.stats = self.stats.clone();
         out.mean_speed = self.mean_speed();
         out.auto_share = self.auto_share;
+        let m = &self.metrics;
+        let since = self.time - 1800.0;
+        out.metrics = MetricsSnap {
+            rows: m.rows.clone(),
+            fd: m
+                .samples
+                .iter()
+                .rev()
+                .take_while(|d| d.t >= since)
+                .filter(|d| d.flow_vphpl > 0.0)
+                .map(|d| [d.density_vpkpl as f32, d.flow_vphpl as f32])
+                .collect(),
+            grid: m.grid.iter().cloned().collect(),
+            grid_t0: m.grid_t0,
+            grid_version: m.grid_version,
+            crashes: m.crashes.clone(),
+            events: self.events.log.clone(),
+            closures: self.events.closures.iter().map(|c| (c.s0, c.s1, c.lanes.clone(), c.crash)).collect(),
+            weather: self.events.weather.iter().map(|z| (z.s0, z.s1)).collect(),
+            outages: self.bus.outages.iter().map(|o| (o.s0, o.s1)).collect(),
+            trips: m.trips_total,
+        };
         out.vehicles.clear();
         out.vehicles.extend((0..self.veh.len()).map(|i| {
             let ag = &self.veh.agent[i];

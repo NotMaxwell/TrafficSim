@@ -11,7 +11,7 @@ use traffic_core::snapshot::{
 
 use crate::theme;
 use crate::view_road::{ColorBy, quad, vehicle_color};
-use crate::view_strip::{Band, Camera, bands, draw_road, minimap};
+use crate::view_strip::{Band, Camera, bands, draw_road, draw_zones, minimap};
 
 pub fn detail(ui: &mut egui::Ui, road: &Road, snap: &WorldSnap, cam: &mut Camera, by: ColorBy) {
     let size = ui.available_size();
@@ -52,6 +52,7 @@ pub fn detail(ui: &mut egui::Ui, road: &Road, snap: &WorldSnap, cam: &mut Camera
     let (eb, wb) = bands(inner, road.lanes, lane_px * 1.2);
     for b in [&eb, &wb] {
         draw_road(&painter, road, b, m0, m1, true);
+        draw_zones(&painter, road, b, m0, m1, snap);
     }
     let mut mesh = Mesh::default();
     let mut clicked_vehicle = None;

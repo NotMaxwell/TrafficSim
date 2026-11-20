@@ -4,7 +4,7 @@
 
 use crate::idm::{self, FREE_GAP};
 use crate::auto::AutoState;
-use crate::{auto, bus, demand, human, mobil};
+use crate::{auto, bus, demand, events, human, metrics, mobil};
 use crate::vehicles::Kind;
 use crate::World;
 
@@ -33,14 +33,18 @@ pub fn gap_to(w: &World, s: f64, leader: usize) -> f64 {
 /// Exiting vehicles in their own off-ramp lane do not see the gore as an
 /// obstacle: they leave the road there.
 pub fn lane_end(w: &World, slot: usize, lane: u8, s: f64) -> Option<f64> {
-    let d = w.road.lane_end_ahead(s, lane, FREE_GAP)?;
+    let closed = if w.events.closures.is_empty() { None } else { w.events.closure_ahead(&w.road, s, lane, FREE_GAP) };
+    let mut d = w.road.lane_end_ahead(s, lane, FREE_GAP);
     if lane == 0
         && let Some(r) = w.road.ramp_zone_at(s)
         && r.id == w.veh.agent[slot].exit
     {
-        return None;
+        d = None;
     }
-    Some(d)
+    match (d, closed) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
 }
 
 /// The obstacle ahead of `slot` in its current lane.
@@ -71,14 +75,19 @@ pub fn desired_speed(w: &World, slot: usize) -> f64 {
     let s = w.veh.s[slot];
     let limit = w.road.limit_at(s);
     let d = &w.veh.agent[slot].driver;
-    match w.veh.kind[slot] {
-        Kind::Human => d.idm.v0 * limit / w.road.limit,
-        Kind::Auto => d.idm.v0.min(limit),
-    }
+    let weather = if w.events.weather.is_empty() { 1.0 } else { w.events.weather_at(&w.road, s).0 };
+    weather
+        * match w.veh.kind[slot] {
+            Kind::Human => d.idm.v0 * limit / w.road.limit,
+            Kind::Auto => d.idm.v0.min(limit),
+        }
 }
 
 /// Advance the world by one tick.
 pub fn step(w: &mut World) {
+    // 7. Scheduled events start / expire (applied first so they take
+    //    effect this tick in both worlds alike).
+    events::apply(w);
     // 1. Arrivals and entries from ramp queues.
     demand::arrivals(w);
     demand::enter(w);
@@ -109,6 +118,8 @@ pub fn step(w: &mut World) {
     demand::exits(w);
     w.veh.reindex();
     detect_collisions(w);
+    // 8. Detectors and the space-time grid.
+    metrics::sample(w);
     w.time += w.dt;
     w.tick += 1;
 }
@@ -219,6 +230,7 @@ pub fn detect_collisions(w: &mut World) {
                 continue;
             }
             w.stats.collisions += 1;
+            w.metrics.crashes.push((w.time, w.veh.s[l]));
             let until = w.time + clear;
             // Momentum is shared on impact; both then skid.
             let v = 0.5 * (w.veh.v[f] + w.veh.v[l]);
