@@ -9,6 +9,7 @@ pub mod bus;
 pub mod demand;
 pub mod human;
 pub mod idm;
+pub mod merge;
 pub mod mobil;
 pub mod params;
 pub mod rng;
@@ -58,6 +59,8 @@ pub struct World {
     /// Probability that a new vehicle is an auto.
     pub auto_share: f64,
     pub truck_share: f64,
+    /// Vehicle ids that are autos regardless of `auto_share`.
+    pub auto_ids: Vec<u64>,
     pub stats: Stats,
     pub demand: demand::Demand,
     pub bus: bus::Bus,
@@ -67,6 +70,11 @@ pub struct World {
 impl World {
     /// Build a world from a scenario with the given auto share.
     pub fn new(sc: &Scenario, auto_share: f64) -> World {
+        World::with_auto_ids(sc, auto_share, &[])
+    }
+
+    /// Build a world where the listed vehicle ids are always autos.
+    pub fn with_auto_ids(sc: &Scenario, auto_share: f64, auto_ids: &[u64]) -> World {
         let road = sc.road.build();
         let demand = demand::Demand::new(&sc.demand, &road, sc.seed);
         let mut w = World {
@@ -81,6 +89,7 @@ impl World {
             tick: 0,
             auto_share: auto_share.clamp(0.0, 1.0),
             truck_share: sc.population.truck_share,
+            auto_ids: auto_ids.to_vec(),
             stats: Stats::default(),
             next_id: 0,
         };

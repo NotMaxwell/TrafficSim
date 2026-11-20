@@ -95,6 +95,9 @@ pub fn ring_view(ui: &mut egui::Ui, snap: &WorldSnap, road: &Road, by: ColorBy) 
         if d.flags & FLAG_BRAKING != 0 {
             quad(&mut mesh, c - dir * (half_len - 1.0), dir, 1.2, lane_px * 0.32, theme::BRAKE);
         }
+        if d.flags & FLAG_AUTO != 0 && by == ColorBy::Speed {
+            quad(&mut mesh, c, dir, half_len * 0.6, lane_px * 0.12, theme::AUTO);
+        }
     }
     painter.add(Shape::mesh(mesh));
     painter.text(

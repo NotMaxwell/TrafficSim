@@ -69,11 +69,15 @@ impl Default for Population {
 pub struct Mix {
     pub left: f64,
     pub right: f64,
+    /// Vehicle ids that are autos regardless of share, per side
+    /// (e.g. the single controlled vehicle of the Stern experiment).
+    pub left_auto_ids: Vec<u64>,
+    pub right_auto_ids: Vec<u64>,
 }
 
 impl Default for Mix {
     fn default() -> Self {
-        Mix { left: 0.0, right: 1.0 }
+        Mix { left: 0.0, right: 1.0, left_auto_ids: Vec::new(), right_auto_ids: Vec::new() }
     }
 }
 

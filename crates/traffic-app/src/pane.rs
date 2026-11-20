@@ -17,9 +17,10 @@ pub struct PaneStyle {
 pub const LEFT: PaneStyle = PaneStyle { title: "LEFT", color: theme::LEFT };
 pub const RIGHT: PaneStyle = PaneStyle { title: "RIGHT", color: theme::RIGHT };
 
-pub fn mode_name(share: f64) -> String {
+pub fn mode_name(share: f64, autos_present: usize) -> String {
     match share {
-        s if s <= 0.0 => "Human mode".into(),
+        s if s <= 0.0 && autos_present == 0 => "Human mode".into(),
+        s if s <= 0.0 => format!("Human mode + {autos_present} auto{}", if autos_present == 1 { "" } else { "s" }),
         s if s >= 1.0 => "Auto mode".into(),
         s => format!("Mixed · {:.0}% autos", s * 100.0),
     }
@@ -28,7 +29,8 @@ pub fn mode_name(share: f64) -> String {
 pub fn header(ui: &mut egui::Ui, style: &PaneStyle, snap: &WorldSnap, queued: usize) {
     ui.horizontal_wrapped(|ui| {
         ui.label(RichText::new(style.title).strong().color(style.color));
-        ui.label(RichText::new(mode_name(snap.auto_share)).strong());
+        let autos = snap.vehicles.iter().filter(|d| d.flags & traffic_core::snapshot::FLAG_AUTO != 0).count();
+        ui.label(RichText::new(mode_name(snap.auto_share, autos)).strong());
         ui.separator();
         stat(ui, "vehicles", snap.vehicles.len().to_string());
         stat(ui, "mean", format!("{:.0} km/h", snap.mean_speed * 3.6));

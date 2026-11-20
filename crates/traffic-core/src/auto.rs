@@ -134,6 +134,10 @@ pub fn accel(w: &World, i: usize) -> AutoOut {
         a
     };
     a_cmd = a_cmd.min(idm.free(v, v0)).min(a_la);
+    // Ramp merge coordinator (zipper).
+    if let Some(a_m) = crate::merge::constraint(w, i) {
+        a_cmd = a_cmd.min(a_m);
+    }
     // Courtesy: also make room for a vehicle signalling into this lane.
     if let Some((gap, vn)) = yielding {
         let gentle = crate::idm::Idm { t: p.t_acc, ..idm };

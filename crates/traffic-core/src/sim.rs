@@ -20,7 +20,11 @@ pub struct Sim {
 
 impl Sim {
     pub fn new(sc: &Scenario) -> Sim {
-        Sim { scenario: sc.clone(), left: World::new(sc, sc.mix.left), right: World::new(sc, sc.mix.right) }
+        Sim {
+            scenario: sc.clone(),
+            left: World::with_auto_ids(sc, sc.mix.left, &sc.mix.left_auto_ids),
+            right: World::with_auto_ids(sc, sc.mix.right, &sc.mix.right_auto_ids),
+        }
     }
 
     pub fn world(&self, side: Side) -> &World {

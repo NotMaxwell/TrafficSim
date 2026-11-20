@@ -150,7 +150,7 @@ pub fn make_agent(w: &World, id: u64, origin: u16, exit: u16) -> (Kind, Agent, f
     let u_pol: f64 = r.random();
     let z_tau = rng::normal(&mut r);
     let u_ant: f64 = r.random();
-    let kind = if rng::uniform(w.seed, Purpose::Kind, id) < w.auto_share { Kind::Auto } else { Kind::Human };
+    let kind = if rng::uniform(w.seed, Purpose::Kind, id) < w.auto_share || w.auto_ids.contains(&id) { Kind::Auto } else { Kind::Human };
 
     let h = &p.human;
     let mut driver = match kind {

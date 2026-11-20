@@ -194,7 +194,11 @@ pub fn decide(w: &World, i: usize, need: Need) -> Option<u8> {
                 // its braking on the gap left after closing for that long.
                 // Humans also want a minimum time gap behind them.
                 let closing = (w.veh.v[f] - w.veh.v[i]).max(0.0);
-                let gap_eff = (gap_b - REACTION_ALLOWANCE * closing).max(0.1);
+                let allowance = match w.veh.kind[f] {
+                    Kind::Human => REACTION_ALLOWANCE,
+                    Kind::Auto => w.params.auto.actuator_tau + w.bus.params.latency_s,
+                };
+                let gap_eff = (gap_b - allowance * closing).max(0.1);
                 let a_f_new = idm_acc(w, f, gap_eff, w.veh.v[i]);
                 if a_f_new < -mp.b_safe {
                     continue;
