@@ -19,6 +19,7 @@ pub mod road;
 pub mod scenario;
 pub mod sim;
 pub mod snapshot;
+pub mod spawn;
 pub mod step;
 pub mod sweep;
 pub mod vehicles;
