@@ -12,6 +12,14 @@ use crate::step::{desired_speed, lane_end};
 use crate::vehicles::{Kind, NO_RAMP};
 use crate::World;
 
+/// Reaction time a lane changer allows for the new follower, s.
+const REACTION_ALLOWANCE: f64 = 1.2;
+
+/// Is a move in `dir` a strongly mandatory one (merge, exit, lane end)?
+fn toward_strong(need: Need, dir: i8) -> bool {
+    need.dir == dir && need.strength > 1.0
+}
+
 /// Lateral need from routing and road layout.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Need {
@@ -174,9 +182,20 @@ pub fn decide(w: &World, i: usize, need: Need) -> Option<u8> {
                 if gap_b < 0.5 {
                     continue;
                 }
-                let a_f_new = idm_acc(w, f, gap_b, w.veh.v[i]);
+                // Gap acceptance: the follower may react ~1.2 s late, so judge
+                // its braking on the gap left after closing for that long.
+                // Humans also want a minimum time gap behind them.
+                let closing = (w.veh.v[f] - w.veh.v[i]).max(0.0);
+                let gap_eff = (gap_b - REACTION_ALLOWANCE * closing).max(0.1);
+                let a_f_new = idm_acc(w, f, gap_eff, w.veh.v[i]);
                 if a_f_new < -mp.b_safe {
                     continue;
+                }
+                if human {
+                    let min_tg = if toward_strong(need, dir) { 0.4 } else { 0.8 };
+                    if gap_b < min_tg * w.veh.v[f] {
+                        continue;
+                    }
                 }
                 let (_, g_old, v_old) = lead_in(w, f, t, w.veh.s[f]);
                 f_new_loss = a_f_new - idm_acc(w, f, g_old, v_old);

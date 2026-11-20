@@ -33,8 +33,14 @@ pub struct HumanParams {
     pub tau_sigma: f64,
     pub tau_min: f64,
     pub tau_max: f64,
+    /// Minimum desired time gap per second of reaction delay (T ≥ k·τ).
+    pub gap_per_tau: f64,
+    /// HDM temporal anticipation: extrapolate delayed gaps over τ.
+    pub temporal_anticipation: bool,
 
-    /// Multi-anticipation: max leaders watched (1 to 3) and range, m.
+    /// Multi-anticipation: leaders watched (uniform in min..=max, 1 to 3)
+    /// and perception range, m.
+    pub anticipation_min: u8,
     pub anticipation_max: u8,
     pub perception_range: f64,
     /// Mirror range for lane changes, m behind / ahead.
@@ -76,6 +82,9 @@ impl Default for HumanParams {
             tau_sigma: 0.3,
             tau_min: 0.7,
             tau_max: 2.5,
+            gap_per_tau: 1.0,
+            temporal_anticipation: true,
+            anticipation_min: 2,
             anticipation_max: 3,
             perception_range: 200.0,
             mirror_back: 60.0,

@@ -159,13 +159,18 @@ pub fn make_agent(w: &World, id: u64, origin: u16, exit: u16) -> (Kind, Agent, f
             idm.v0 *= 1.0 + h.v0_spread * (2.0 * u_v0 - 1.0);
             idm.t = h.t_min + (h.t_max - h.t_min) * u_t;
             let tau = if h.delay { (h.tau_median * (h.tau_sigma * z_tau).exp()).clamp(h.tau_min, h.tau_max) } else { 0.0 };
+            // Drivers who react slowly keep at least their reaction time as
+            // headway (otherwise τ > T makes rear-end crashes routine).
+            idm.t = idm.t.max(tau * h.gap_per_tau);
             let max_ant = h.anticipation_max.clamp(1, 3);
+            let min_ant = h.anticipation_min.clamp(1, max_ant);
+            let span = max_ant - min_ant + 1;
             Driver {
                 idm,
                 politeness: h.polite_min + (h.polite_max - h.polite_min) * u_pol,
                 threshold: p.mobil.threshold,
                 tau,
-                anticipation: 1 + ((u_ant * max_ant as f64) as u8).min(max_ant - 1),
+                anticipation: min_ant + ((u_ant * span as f64) as u8).min(span - 1),
             }
         }
         Kind::Auto => {

@@ -3,7 +3,7 @@
 //! sequences them and holds the shared leader query and integrator.
 
 use crate::idm::{self, FREE_GAP};
-use crate::{demand, mobil};
+use crate::{demand, human, mobil};
 use crate::vehicles::Kind;
 use crate::World;
 
@@ -83,20 +83,11 @@ pub fn step(w: &mut World) {
     demand::enter(w);
     // 4. Lane changes (applied immediately, index kept sorted).
     mobil::lane_changes(w);
+    // 3. Perception (after lane changes, so a driver who just changed
+    //    lanes looks at the new lane).
+    human::perceive(w);
     // 5. Accelerations.
-    let n = w.veh.len();
-    let mut acc = vec![0.0; n];
-    for (i, a) in acc.iter_mut().enumerate() {
-        *a = accel_ideal(w, i);
-    }
-    let sigma = w.params.human.accel_noise;
-    if sigma > 0.0 {
-        for (i, a) in acc.iter_mut().enumerate() {
-            if w.veh.kind[i] == Kind::Human && !w.veh.agent[i].crashed() {
-                *a += sigma * w.veh.agent[i].rng.normal();
-            }
-        }
-    }
+    let acc: Vec<f64> = (0..w.veh.len()).map(|i| accel(w, i)).collect();
     // 6. Integrate, remove exiting vehicles, re-sort.
     integrate(w, &acc);
     demand::exits(w);
@@ -104,6 +95,39 @@ pub fn step(w: &mut World) {
     detect_collisions(w);
     w.time += w.dt;
     w.tick += 1;
+}
+
+/// Commanded acceleration of vehicle `i` for this tick.
+pub fn accel(w: &World, i: usize) -> f64 {
+    let ag = &w.veh.agent[i];
+    if ag.crashed() {
+        return 0.0;
+    }
+    let v0 = desired_speed(w, i);
+    let mut a = match w.veh.kind[i] {
+        Kind::Human => {
+            let mut a = human::accel(w, i, v0);
+            let sigma = w.params.human.accel_noise;
+            if sigma > 0.0 {
+                // Deterministic per-vehicle noise; the RNG advances in
+                // `integrate`, keeping this function side-effect free.
+                let mut r = ag.rng;
+                a += sigma * r.normal();
+            }
+            a
+        }
+        Kind::Auto => accel_ideal(w, i),
+    };
+    if let Some(f) = ag.forced
+        && w.time < f.until
+    {
+        // Scheduled hard brake: slow to the target and hold it (never
+        // faster than the controller would allow).
+        let v = w.veh.v[i];
+        let hold = if v > f.target { -f.decel } else { ((f.target - v) / 2.0).min(0.5) };
+        a = a.min(hold);
+    }
+    a
 }
 
 /// Plain IDM acceleration on true state (no delay, no noise).
@@ -123,9 +147,18 @@ pub fn integrate(w: &mut World, acc: &[f64]) {
         let ag = &mut w.veh.agent[i];
         ag.s_prev = w.veh.s[i];
         if ag.crashed() {
-            w.veh.v[i] = 0.0;
-            w.veh.a[i] = 0.0;
+            // Wreckage skids to a stop.
+            let (dx, v) = idm::ballistic(w.veh.v[i], -CRASH_DECEL, dt);
+            w.veh.s[i] = w.road.wrap(w.veh.s[i] + dx);
+            w.veh.v[i] = v;
+            w.veh.a[i] = if v > 0.0 { -CRASH_DECEL } else { 0.0 };
             continue;
+        }
+        if w.params.human.accel_noise > 0.0 && w.veh.kind[i] == Kind::Human {
+            ag.rng.normal();
+        }
+        if ag.forced.is_some_and(|f| w.time >= f.until) {
+            ag.forced = None;
         }
         let a = a_cmd.clamp(-idm::B_MAX, 5.0);
         let (dx, v) = idm::ballistic(w.veh.v[i], a, dt);
@@ -141,8 +174,11 @@ pub fn integrate(w: &mut World, acc: &[f64]) {
     }
 }
 
-/// Any overlap between consecutive vehicles in a lane is a crash: both stop
-/// and become a blockage until towed.
+/// Deceleration of vehicles after a crash, m/s².
+pub const CRASH_DECEL: f64 = 8.0;
+
+/// Any overlap between consecutive vehicles in a lane is a crash: both skid
+/// to a stop and become a blockage until towed.
 pub fn detect_collisions(w: &mut World) {
     let clear = w.params.human.crash_clear_time;
     for lane in 0..w.veh.lanes.len() {
@@ -162,10 +198,11 @@ pub fn detect_collisions(w: &mut World) {
             }
             w.stats.collisions += 1;
             let until = w.time + clear;
+            // Momentum is shared on impact; both then skid.
+            let v = 0.5 * (w.veh.v[f] + w.veh.v[l]);
             for x in [f, l] {
                 w.veh.agent[x].crashed_until = until;
-                w.veh.v[x] = 0.0;
-                w.veh.a[x] = 0.0;
+                w.veh.v[x] = v;
             }
             // Separate the bodies so the blockage is well defined.
             w.veh.s[f] = w.road.wrap(w.veh.s[l] - w.veh.len[l] - 0.01);

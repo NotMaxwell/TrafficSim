@@ -5,7 +5,7 @@
 set -euo pipefail
 out=$1; wait_s=$2; shift 2
 cd "$(dirname "$0")/.."
-ppm=$(mktemp --suffix=.ppm)
+ppm="$PWD/target/screenshot-$$.ppm"; rm -f "$ppm"
 bin="$PWD/target/release/traffic-sim"
 "$bin" "$@" --screenshot "$ppm" --after "$wait_s" >/dev/null 2>&1 &
 for _ in $(seq 1 $((wait_s * 2 + 60))); do
