@@ -1,0 +1,37 @@
+name = "City A to City B"
+description = "20-mile, 3-lane corridor closed into a 40-mile ring. Morning peak from City A, evening peak from City B. Interchanges at miles 7 and 13."
+seed = 7
+dt = 0.1
+duration_s = 7200.0
+
+[road]
+kind = "corridor"
+corridor_mi = 20.0
+lanes = 3
+loop_lanes = 2
+loop_m = 500.0
+ramp_zone_m = 300.0
+speed_limit_mph = 70.0
+loop_limit_mph = 35.0
+interchanges_mi = [7.0, 13.0]
+city_terminal = true
+
+[population]
+initial_density = 12.0
+truck_share = 0.08
+
+[demand]
+city_a_vph = 3600.0
+city_b_vph = 2000.0
+interchange_vph = 450.0
+through_share = 0.1
+interchange_exit_share = 0.1
+start_hour = 6.5
+# (hour, multiplier): morning peak out of City A, evening peak out of City B.
+profile_a = [[0.0, 0.2], [6.0, 0.7], [7.5, 1.25], [9.0, 0.8], [16.0, 0.9], [19.0, 0.6]]
+profile_b = [[0.0, 0.2], [6.0, 0.5], [8.0, 0.8], [16.0, 1.0], [17.5, 1.6], [19.0, 0.7]]
+multiplier = 1.0
+
+[mix]
+left = 0.0
+right = 1.0

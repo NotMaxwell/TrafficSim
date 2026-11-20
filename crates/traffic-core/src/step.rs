@@ -3,6 +3,7 @@
 //! sequences them and holds the shared leader query and integrator.
 
 use crate::idm::{self, FREE_GAP};
+use crate::{demand, mobil};
 use crate::vehicles::Kind;
 use crate::World;
 
@@ -77,6 +78,12 @@ pub fn desired_speed(w: &World, slot: usize) -> f64 {
 
 /// Advance the world by one tick.
 pub fn step(w: &mut World) {
+    // 1. Arrivals and entries from ramp queues.
+    demand::arrivals(w);
+    demand::enter(w);
+    // 4. Lane changes (applied immediately, index kept sorted).
+    mobil::lane_changes(w);
+    // 5. Accelerations.
     let n = w.veh.len();
     let mut acc = vec![0.0; n];
     for (i, a) in acc.iter_mut().enumerate() {
@@ -90,7 +97,9 @@ pub fn step(w: &mut World) {
             }
         }
     }
+    // 6. Integrate, remove exiting vehicles, re-sort.
     integrate(w, &acc);
+    demand::exits(w);
     w.veh.reindex();
     detect_collisions(w);
     w.time += w.dt;

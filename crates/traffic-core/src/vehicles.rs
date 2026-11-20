@@ -151,6 +151,29 @@ impl Vehicles {
         }
     }
 
+    /// Move a slot to another lane, keeping both lane lists sorted.
+    pub fn move_lane(&mut self, slot: usize, to: u8) {
+        let from = self.lane[slot] as usize;
+        let k = self.pos[slot] as usize;
+        self.lanes[from].remove(k);
+        for j in k..self.lanes[from].len() {
+            let x = self.lanes[from][j] as usize;
+            self.pos[x] = j as u32;
+        }
+        let (s, id) = (self.s[slot], self.id[slot]);
+        let list = &self.lanes[to as usize];
+        let k = list.partition_point(|&j| {
+            let j = j as usize;
+            self.s[j] < s || (self.s[j] == s && self.id[j] < id)
+        });
+        self.lanes[to as usize].insert(k, slot as u32);
+        for j in k..self.lanes[to as usize].len() {
+            let x = self.lanes[to as usize][j] as usize;
+            self.pos[x] = j as u32;
+        }
+        self.lane[slot] = to;
+    }
+
     /// Next vehicle ahead in the same lane (wrapping around the ring).
     pub fn leader(&self, slot: usize) -> Option<usize> {
         let l = &self.lanes[self.lane[slot] as usize];

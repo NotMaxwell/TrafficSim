@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::demand::DemandConfig;
 use crate::params::{AutoParams, HumanParams, MobilParams, Params, TruckParams};
 use crate::road::{CorridorGeometry, Road};
 
@@ -87,6 +88,7 @@ pub struct Scenario {
     pub duration_s: f64,
     pub road: RoadConfig,
     pub population: Population,
+    pub demand: DemandConfig,
     pub mix: Mix,
     pub human: HumanParams,
     pub auto: AutoParams,
@@ -104,6 +106,7 @@ impl Default for Scenario {
             duration_s: 600.0,
             road: RoadConfig::Ring { length_m: 1000.0, lanes: 1, speed_limit_kmh: 120.0 },
             population: Population::default(),
+            demand: DemandConfig::default(),
             mix: Mix::default(),
             human: HumanParams::default(),
             auto: AutoParams::default(),

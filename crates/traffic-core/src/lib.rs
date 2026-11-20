@@ -8,6 +8,7 @@ pub mod auto;
 pub mod demand;
 pub mod human;
 pub mod idm;
+pub mod mobil;
 pub mod params;
 pub mod rng;
 pub mod road;
@@ -55,6 +56,7 @@ pub struct World {
     pub auto_share: f64,
     pub truck_share: f64,
     pub stats: Stats,
+    pub demand: demand::Demand,
     pub(crate) next_id: u64,
 }
 
@@ -62,7 +64,9 @@ impl World {
     /// Build a world from a scenario with the given auto share.
     pub fn new(sc: &Scenario, auto_share: f64) -> World {
         let road = sc.road.build();
+        let demand = demand::Demand::new(&sc.demand, &road, sc.seed);
         let mut w = World {
+            demand,
             veh: Vehicles::new(road.lanes),
             road,
             params: sc.params(),
@@ -95,6 +99,14 @@ impl World {
             self.veh.lane[i].hash(&mut h);
         }
         h.finish()
+    }
+
+    /// Called just before a vehicle leaves through off-ramp `ramp`.
+    pub(crate) fn on_exit(&mut self, _slot: usize, _ramp: u16) {}
+
+    /// Vehicles waiting in ramp queues.
+    pub fn queued(&self) -> usize {
+        self.demand.queued()
     }
 
     /// Advance by `n` ticks.

@@ -40,6 +40,9 @@ pub struct Ramp {
     pub zone_end: f64,
     /// City end ramps (true) vs mid-corridor interchanges (false).
     pub city: bool,
+    /// Freeway terminal: vehicles enter / leave on any mainline lane at
+    /// `zone_start` (on) or `zone_end` (off) instead of using lane 0.
+    pub all_lanes: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -101,9 +104,11 @@ impl Road {
             road.full[lane as usize] = false;
             road.spans[lane as usize] = vec![Span { start: 0.0, end: c }, Span { start: wb0, end: wb0 + c }];
         }
-        let mut add = |kind, name: String, dir, mile, start: f64, city| {
+        let terminal = cfg.city_terminal;
+        let mut add = |kind, name: String, dir, mile, start: f64, city: bool| {
             let id = road.ramps.len() as u16;
-            road.ramps.push(Ramp { id, kind, name, dir, mile, zone_start: start, zone_end: start + z, city });
+            let all_lanes = city && terminal;
+            road.ramps.push(Ramp { id, kind, name, dir, mile, zone_start: start, zone_end: start + z, city, all_lanes });
         };
         let off = 100.0;
         add(RampKind::On, "City A on (EB)".into(), Dir::East, 0.0, off, true);
@@ -122,7 +127,8 @@ impl Road {
             add(RampKind::On, format!("Mile {m} on (WB)"), Dir::West, m, x + 150.0, false);
         }
         add(RampKind::Off, "City A off (WB)".into(), Dir::West, 0.0, wb0 + c - off - z, true);
-        let mut aux: Vec<Span> = road.ramps.iter().map(|r| Span { start: r.zone_start, end: r.zone_end }).collect();
+        let mut aux: Vec<Span> =
+            road.ramps.iter().filter(|r| !r.all_lanes).map(|r| Span { start: r.zone_start, end: r.zone_end }).collect();
         aux.sort_by(|a, b| a.start.total_cmp(&b.start));
         road.spans[0] = aux;
         road
@@ -172,7 +178,12 @@ impl Road {
 
     /// The ramp whose zone contains s, if any.
     pub fn ramp_zone_at(&self, s: f64) -> Option<&Ramp> {
-        self.ramps.iter().find(|r| s >= r.zone_start && s < r.zone_end)
+        self.ramps.iter().find(|r| !r.all_lanes && s >= r.zone_start && s < r.zone_end)
+    }
+
+    /// Point where vehicles leave through `ramp` (the gore).
+    pub fn gore(&self, ramp: u16) -> Option<f64> {
+        self.ramps.get(ramp as usize).map(|r| r.zone_end)
     }
 
     pub fn on_ramps(&self) -> impl Iterator<Item = &Ramp> {
@@ -226,6 +237,9 @@ pub struct CorridorGeometry {
     pub speed_limit_mph: f64,
     pub loop_limit_mph: f64,
     pub interchanges_mi: Vec<f64>,
+    /// City ends are freeway terminals (multi-lane entry/exit). When false
+    /// they are ordinary single-lane ramps like the interchanges.
+    pub city_terminal: bool,
 }
 
 impl Default for CorridorGeometry {
@@ -239,6 +253,7 @@ impl Default for CorridorGeometry {
             speed_limit_mph: 70.0,
             loop_limit_mph: 35.0,
             interchanges_mi: Vec::new(),
+            city_terminal: true,
         }
     }
 }
@@ -255,8 +270,11 @@ mod tests {
         assert!(r.lane_exists(1000.0, 3));
         assert!(!r.lane_exists(r.corridor + 10.0, 3));
         assert!(r.lane_exists(r.corridor + 10.0, 2));
-        assert!(r.lane_exists(150.0, 0));
-        assert!(!r.lane_exists(5000.0, 0));
+        assert!(!r.lane_exists(150.0, 0), "city terminals have no aux lane");
+        let g = CorridorGeometry { city_terminal: false, ..Default::default() };
+        let r2 = Road::corridor(&g);
+        assert!(r2.lane_exists(150.0, 0));
+        assert!(!r2.lane_exists(5000.0, 0));
         assert_eq!(r.lane_end_ahead(r.corridor - 50.0, 3, 100.0), Some(50.0));
         assert_eq!(r.lane_end_ahead(r.corridor - 50.0, 1, 100.0), None);
         let (d, m) = r.to_corridor(r.from_corridor(Dir::West, 5.0)).unwrap();

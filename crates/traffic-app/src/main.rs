@@ -4,7 +4,9 @@ mod capture;
 mod runner;
 mod scenarios;
 mod theme;
+mod view_detail;
 mod view_road;
+mod view_strip;
 
 use runner::{Cmd, Runner};
 use view_road::ColorBy;
@@ -28,6 +30,7 @@ struct App {
     color_by: ColorBy,
     fps: f32,
     capture: Option<capture::Capture>,
+    camera: view_strip::Camera,
 }
 
 impl App {
@@ -40,7 +43,7 @@ impl App {
         let sc = scenarios::load(scenarios::BUILTIN[scenario_idx].1);
         let runner = Runner::start(sc, cc.egui_ctx.clone());
         runner.send(Cmd::Speed(speed));
-        App { runner, scenario_idx, speed, color_by: ColorBy::Speed, fps: 0.0, capture: capture::Capture::from_args(&args) }
+        App { runner, scenario_idx, speed, color_by: ColorBy::Speed, fps: 0.0, capture: capture::Capture::from_args(&args), camera: Default::default() }
     }
 
     fn top_bar(&mut self, ui: &mut egui::Ui, frame: &runner::Frame) {
@@ -106,7 +109,16 @@ impl eframe::App for App {
         egui::Panel::top("top").show(ui, |ui| self.top_bar(ui, &frame));
         egui::CentralPanel::default().show(ui, |ui| {
             if let (Some(road), Some(w)) = (&frame.road, frame.worlds.first()) {
-                view_road::ring_view(ui, w, road, self.color_by);
+                if road.is_corridor() {
+                    if let Some(m) = view_strip::strip(ui, road, w, &self.camera, self.color_by, 110.0) {
+                        self.camera.mile = m;
+                        self.camera.follow = None;
+                    }
+                    ui.add_space(6.0);
+                    view_detail::detail(ui, road, w, &mut self.camera, self.color_by);
+                } else {
+                    view_road::ring_view(ui, w, road, self.color_by);
+                }
             }
         });
     }
